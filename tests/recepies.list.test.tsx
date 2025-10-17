@@ -1,5 +1,6 @@
 import { render, screen, waitFor } from "@testing-library/react";
 import RecipesPage from "../src/features/recipes/RecipesPage";
+import { renderWithRouter } from "./utils/renderWithRouter";
 import "../src/i18n";
 import { db } from "../src/db/schema";
 
@@ -9,7 +10,7 @@ beforeAll(async () => {
 });
 
 test("shows seeded recipes", async () => {
-  render(<RecipesPage />);
+  renderWithRouter(<RecipesPage />);
   await waitFor(() => screen.getByText("Pannkakor"));
   expect(screen.getByText("Pannkakor")).toBeInTheDocument();
 });

@@ -22,6 +22,16 @@ const resources = {
       "recipes.noTime": "Ingen tid angiven",
       "recipes.addNew": "Lägg till nytt recept",
       "recipes.edit": "Redigera recept",
+      "recipeDetail.notFound": "Receptet kunde inte hittas.",
+      "recipeDetail.noDescription": "Ingen beskrivning tillgänglig.",
+      "recipeDetail.ingredients": "Ingredienser",
+      "recipeDetail.steps": "Tillagning",
+      "recipeDetail.minutes": "min",
+      "recipeDetail.totalTime": "Total tid: {{minutes}} min",
+      "recipeDetail.back": "Tillbaka till listan",
+      "recipeDetail.delete": "Radera recept",
+      "recipeDetail.confirmDelete": "Är du säker på att du vill radera receptet?",
+      "recipeDetail.edit": "Redigera recept",
     }
   }
 };

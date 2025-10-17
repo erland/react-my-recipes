@@ -4,6 +4,7 @@ import {
   Stack,
   TextField,
   Typography,
+  ListItemButton,
   Slider,
   Paper,
   IconButton,
@@ -17,6 +18,7 @@ import {
 import { Add, Edit } from "@mui/icons-material";
 import { useTranslation } from "react-i18next";
 import { useRecipeSearch } from "@/hooks/useRecipeSearch";
+import { Link } from "react-router-dom";
 import { fullName } from "@/utils/nameUtils"; // future placeholder, optional
 
 export default function RecipesPage() {
@@ -70,23 +72,28 @@ export default function RecipesPage() {
           <List>
             {recipes.map((r) => (
               <React.Fragment key={r.id}>
-                <ListItem divider>
-                  <ListItemText
-                    primary={r.title}
-                    secondary={
-                      r.totalTimeMin
-                        ? `${r.totalTimeMin} min`
-                        : t("recipes.noTime")
-                    }
-                  />
+                <ListItem divider disablePadding>
+                  <ListItemButton component={Link} to={`/recipes/${r.id}`}>
+                    <ListItemText
+                      primary={r.title}
+                      secondary={r.totalTimeMin ? `${r.totalTimeMin} min` : t("recipes.noTime")}
+                    />
+                  </ListItemButton>
                   <ListItemSecondaryAction>
                     <Tooltip title={t("recipes.edit")}>
-                      <IconButton color="primary">
+                      <IconButton
+                        color="primary"
+                        size="small"
+                        onClick={(e) => {
+                          e.preventDefault();
+                        }}
+                      >
                         <Edit />
                       </IconButton>
                     </Tooltip>
                   </ListItemSecondaryAction>
                 </ListItem>
+
               </React.Fragment>
             ))}
           </List>
