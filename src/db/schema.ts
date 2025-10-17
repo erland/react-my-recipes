@@ -1,10 +1,7 @@
 import Dexie, { Table } from "dexie";
 import type { Recipe, ImageAsset } from "@/types/recipe";
+import { v4 as uuidv4 } from "uuid";
 
-/**
- * Main Dexie database for the Recipe PWA.
- * Contains two tables: recipes and images.
- */
 export class RecipeDB extends Dexie {
   recipes!: Table<Recipe, string>;
   images!: Table<ImageAsset, string>;
@@ -12,15 +9,14 @@ export class RecipeDB extends Dexie {
   constructor() {
     super("recipeDB");
 
-    // --- Schema version 1 ---
     this.version(1).stores({
       recipes:
         "id, title, updatedAt, favorite, *tags, *categories, totalTimeMin, cookTimeMin, prepTimeMin",
       images: "id, updatedAt",
     });
 
-    // --- Hooks for automatic timestamps ---
-    this.recipes.hook("creating", (_, obj) => {
+    this.recipes.hook("creating", (primKey, obj) => {
+      if (!obj.id) obj.id = uuidv4();
       obj.updatedAt = Date.now();
     });
 
@@ -30,9 +26,6 @@ export class RecipeDB extends Dexie {
     });
   }
 
-  /**
-   * Remove all data (useful for testing or reset)
-   */
   async clearAll() {
     await this.transaction("rw", this.recipes, this.images, async () => {
       await this.recipes.clear();
@@ -40,9 +33,6 @@ export class RecipeDB extends Dexie {
     });
   }
 
-  /**
-   * Seed the database with example data (for development)
-   */
   async seedDemoData() {
     const now = Date.now();
 
@@ -56,14 +46,14 @@ export class RecipeDB extends Dexie {
         cookTimeMin: 15,
         totalTimeMin: 25,
         ingredients: [
-          { id: "i1", name: "Mjölk", quantity: "6 dl" },
-          { id: "i2", name: "Mjöl", quantity: "2,5 dl" },
-          { id: "i3", name: "Ägg", quantity: "3 st" },
+          { id: uuidv4(), name: "Mjölk", quantity: "6 dl" },
+          { id: uuidv4(), name: "Mjöl", quantity: "2,5 dl" },
+          { id: uuidv4(), name: "Ägg", quantity: "3 st" },
         ],
         steps: [
-          { id: "s1", order: 1, text: "Vispa ihop mjöl och mjölk." },
-          { id: "s2", order: 2, text: "Tillsätt äggen och vispa slätt." },
-          { id: "s3", order: 3, text: "Stek tunna pannkakor i smör." },
+          { id: uuidv4(), order: 1, text: "Vispa ihop mjöl och mjölk." },
+          { id: uuidv4(), order: 2, text: "Tillsätt äggen och vispa slätt." },
+          { id: uuidv4(), order: 3, text: "Stek tunna pannkakor i smör." },
         ],
         tags: ["svenskt", "snabbt"],
         categories: ["middag", "dessert"],
@@ -78,13 +68,13 @@ export class RecipeDB extends Dexie {
         cookTimeMin: 20,
         totalTimeMin: 40,
         ingredients: [
-          { id: "i1", name: "Blandfärs", quantity: "500 g" },
-          { id: "i2", name: "Lök", quantity: "1 st" },
-          { id: "i3", name: "Ägg", quantity: "1 st" },
+          { id: uuidv4(), name: "Blandfärs", quantity: "500 g" },
+          { id: uuidv4(), name: "Lök", quantity: "1 st" },
+          { id: uuidv4(), name: "Ägg", quantity: "1 st" },
         ],
         steps: [
-          { id: "s1", order: 1, text: "Hacka löken och blanda färsen." },
-          { id: "s2", order: 2, text: "Forma små bollar och stek gyllenbruna." },
+          { id: uuidv4(), order: 1, text: "Hacka löken och blanda färsen." },
+          { id: uuidv4(), order: 2, text: "Forma små bollar och stek gyllenbruna." },
         ],
         tags: ["klassiker"],
         categories: ["middag"],

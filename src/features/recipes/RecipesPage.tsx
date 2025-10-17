@@ -19,6 +19,8 @@ import { Add, Edit } from "@mui/icons-material";
 import { useTranslation } from "react-i18next";
 import { useRecipeSearch } from "@/hooks/useRecipeSearch";
 import { Link } from "react-router-dom";
+import RecipeDialog from "./RecipeDialog";
+import type { Recipe } from "@/types/recipe";
 import { fullName } from "@/utils/nameUtils"; // future placeholder, optional
 
 export default function RecipesPage() {
@@ -27,6 +29,19 @@ export default function RecipesPage() {
   const [maxTime, setMaxTime] = React.useState(180);
 
   const recipes = useRecipeSearch({ query: search, maxTime });
+
+  const [dialogOpen, setDialogOpen] = React.useState(false);
+  const [editingRecipe, setEditingRecipe] = React.useState<Recipe | null>(null);
+
+  const handleAdd = () => {
+    setEditingRecipe(null);
+    setDialogOpen(true);
+  };
+
+  const handleEdit = (r: Recipe) => {
+    setEditingRecipe(r);
+    setDialogOpen(true);
+  };
 
   return (
     <Stack spacing={2}>
@@ -86,6 +101,7 @@ export default function RecipesPage() {
                         size="small"
                         onClick={(e) => {
                           e.preventDefault();
+                          handleEdit(r);
                         }}
                       >
                         <Edit />
@@ -103,12 +119,17 @@ export default function RecipesPage() {
 
         <Box sx={{ textAlign: "center" }}>
           <Tooltip title={t("recipes.addNew")}>
-            <IconButton color="primary" size="large">
+            <IconButton color="primary" size="large" onClick={handleAdd}>
               <Add />
             </IconButton>
           </Tooltip>
         </Box>
       </Paper>
+      <RecipeDialog
+        open={dialogOpen}
+        onClose={() => setDialogOpen(false)}
+        recipe={editingRecipe}
+      />
     </Stack>
   );
 }

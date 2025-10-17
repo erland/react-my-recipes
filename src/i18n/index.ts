@@ -32,6 +32,13 @@ const resources = {
       "recipeDetail.delete": "Radera recept",
       "recipeDetail.confirmDelete": "Är du säker på att du vill radera receptet?",
       "recipeDetail.edit": "Redigera recept",
+      "recipeDialog.addTitle": "Nytt recept",
+      "recipeDialog.editTitle": "Redigera recept",
+      "recipeDialog.title": "Titel",
+      "recipeDialog.description": "Beskrivning",
+      "recipeDialog.totalTime": "Total tid (minuter)",
+      "common.cancel": "Avbryt",
+      "common.save": "Spara",
     }
   }
 };
