@@ -83,8 +83,12 @@ async function getValidToken(): Promise<string> {
           const expiresAt = Date.now() + expiresIn * 1000;
 
           tokenCache = { token, expiresAt };
+
+          // MERGE-SAFE WRITE: do not wipe existing keys (recipesFileId, driveFolderId, autoSync, etc.)
+          const prev = await db.syncState.get("google-drive");
           await db.syncState.put(
             {
+              ...(prev ?? { id: "google-drive" }),
               id: "google-drive",
               accessToken: token,
               accessTokenExpiresAt: expiresAt,
@@ -161,7 +165,7 @@ async function gdriveUploadMultipart(meta: Record<string, any>, body: Blob | str
 async function gdrivePatchMultipart(fileId: string, json: any): Promise<Response> {
   const token = await getValidToken();
   const boundary = `rb_${Math.random().toString(36).slice(2)}`;
-  const meta = { name: "recipes.json" }; // ✅ include valid fields
+  const meta = { name: "recipes.json" }; // include valid fields for PATCH
   const metaStr = JSON.stringify(meta);
   const bodyStr = JSON.stringify(json);
   const delimiter = `\r\n--${boundary}\r\n`;
@@ -284,8 +288,16 @@ export async function uploadRecipesJson(fileId: string, json: any): Promise<void
     );
     const newFileId = created.id as string;
 
-    // Persist the new file id so future syncs use it
-    await db.syncState.put({ id: "google-drive", recipesFileId: newFileId }, "google-drive");
+    // MERGE-SAFE WRITE: keep existing flags/ids
+    const prev = await db.syncState.get("google-drive");
+    await db.syncState.put(
+      {
+        ...(prev ?? { id: "google-drive" }),
+        id: "google-drive",
+        recipesFileId: newFileId,
+      },
+      "google-drive"
+    );
     return; // success after recreate
   }
 
@@ -301,8 +313,15 @@ export async function signOutDrive() {
     const token = (await db.syncState.get("google-drive"))?.accessToken;
     google?.accounts?.oauth2?.revoke?.(token, () => {});
   } catch {}
+  // MERGE-SAFE WRITE: clear only token fields
+  const prev = await db.syncState.get("google-drive");
   await db.syncState.put(
-    { id: "google-drive", accessToken: null, accessTokenExpiresAt: null },
+    {
+      ...(prev ?? { id: "google-drive" }),
+      id: "google-drive",
+      accessToken: null,
+      accessTokenExpiresAt: null,
+    },
     "google-drive"
   );
 }

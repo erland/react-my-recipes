@@ -1,29 +1,71 @@
-// src/utils/autoSyncToast.tsx
 import React from "react";
 import { Snackbar, Alert } from "@mui/material";
 import { syncNow } from "@/sync/syncEngine";
 import { db } from "@/db/schema";
 
+type Sev = "info" | "success" | "error";
+
 export function useAutoSyncToast() {
-  const [snack, setSnack] = React.useState<{ open: boolean; msg: string; severity: "info" | "success" | "error" }>({
+  const [snack, setSnack] = React.useState<{
+    open: boolean;
+    msg: string;
+    severity: Sev;
+  }>({
     open: false,
     msg: "",
     severity: "info",
   });
 
-  // Triggered externally (e.g., from main.tsx)
-  async function triggerAutoSync(reason: string) {
+  // Prevent double-runs / loops
+  const inFlightRef = React.useRef(false);
+  const lastAtRef = React.useRef(0);
+  const THROTTLE_MS = 5000;
+
+  const triggerAutoSync = React.useCallback(async (_reason: string) => {
     try {
       const st = await db.syncState.get("google-drive");
-      if (!st?.autoSync) return;
+      // Only run if auto-sync is enabled AND user has connected before
+      const connected = !!(st?.recipesFileId || st?.driveFolderId);
+      if (!st?.autoSync || !connected) return;
+
+      const now = Date.now();
+      if (inFlightRef.current || now - lastAtRef.current < THROTTLE_MS) return;
+
+      inFlightRef.current = true;
       setSnack({ open: true, msg: "Synkar…", severity: "info" });
+
       await syncNow();
+
+      // MERGE-SAFE WRITE
+      const prev = await db.syncState.get("google-drive");
+      await db.syncState.put(
+        {
+          ...(prev ?? { id: "google-drive" }),
+          id: "google-drive",
+          lastSyncAt: Date.now(),
+          lastError: null,
+        },
+        "google-drive"
+      );
+
       setSnack({ open: true, msg: "Synk klar ✓", severity: "success" });
-    } catch (err) {
-      console.error("[AutoSync] Failed:", err);
+    } catch (err: any) {
+      // MERGE-SAFE WRITE
+      const prev = await db.syncState.get("google-drive");
+      await db.syncState.put(
+        {
+          ...(prev ?? { id: "google-drive" }),
+          id: "google-drive",
+          lastError: String(err?.message || err),
+        },
+        "google-drive"
+      );
       setSnack({ open: true, msg: "Synk misslyckades", severity: "error" });
+    } finally {
+      lastAtRef.current = Date.now();
+      inFlightRef.current = false;
     }
-  }
+  }, []);
 
   const Toast = (
     <Snackbar
