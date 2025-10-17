@@ -15,18 +15,29 @@ const theme = createTheme({
   },
 });
 
-const router = createBrowserRouter([
+// ✅ Updated router with v7-compatible "future" options
+const router = createBrowserRouter(
+  [
+    {
+      path: "/",
+      element: <AppLayout />,
+      children: [
+        { index: true, element: <RecipesPage /> },
+        { path: "recipes", element: <RecipesPage /> },
+        { path: "recipes/:id", element: <RecipeDetail /> },
+        { path: "settings", element: <SettingsPage /> },
+      ],
+    },
+  ],
   {
-    path: "/",
-    element: <AppLayout />,
-    children: [
-      { index: true, element: <RecipesPage /> },
-      { path: "recipes", element: <RecipesPage /> },
-      { path: "recipes/:id", element: <RecipeDetail /> },
-      { path: "settings", element: <SettingsPage /> },
-    ],
-  },
-]);
+    // 👇 This block silences warnings on v6.22+
+    // and has no effect once you upgrade to v7.
+    future: {
+      v7_startTransition: true,
+      v7_relativeSplatPath: true,
+    },
+  }
+);
 
 ReactDOM.createRoot(document.getElementById("root")!).render(
   <React.StrictMode>
@@ -34,5 +45,5 @@ ReactDOM.createRoot(document.getElementById("root")!).render(
       <CssBaseline />
       <RouterProvider router={router} />
     </ThemeProvider>
-  </React.StrictMode>,
+  </React.StrictMode>
 );
