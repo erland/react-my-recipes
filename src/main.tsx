@@ -7,6 +7,15 @@ import RecipesPage from "./features/recipes/RecipesPage";
 import RecipeDetail from "./features/recipes/RecipeDetail";
 import SettingsPage from "./features/settings/SettingsPage";
 import "./i18n";
+import { ensurePersistentStorage, logStorageEstimate } from "@/utils/persistence";
+
+// Ask for durable storage as soon as possible (non-blocking)
+ensurePersistentStorage().then((ok) => {
+  // eslint-disable-next-line no-console
+  console.log("[storage] persistent granted:", ok);
+});
+logStorageEstimate();
+
 
 const theme = createTheme({
   palette: {

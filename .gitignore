@@ -7,4 +7,5 @@ coverage
 *.log
 .env*
 tsconfig.tsbuildinfo
+test-results
 digest.txt
