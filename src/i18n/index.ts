@@ -10,6 +10,8 @@ const resources = {
       "recipes.title": "Recept",
       "recipes.searchEverything": "Sök i allt…",
       "recipes.maxTotalTime": "Maximal total tid: {{minutes}} min",
+      "recipes.favorite": "Favorit",
+      "recipes.unfavorite": "Ta bort favorit",
       "recipes.placeholderList": "Här kommer listan. (Steg 2–3 bygger sökningen och listan.)",
       "settings.title": "Inställningar",
       "settings.autoSync": "Automatisk synk (kommer senare)",

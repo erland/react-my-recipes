@@ -17,6 +17,7 @@ export class RecipeDB extends Dexie {
 
     this.recipes.hook("creating", (primKey, obj) => {
       if (!obj.id) obj.id = uuidv4();
+      if (!obj.createdAt) obj.createdAt = Date.now();
       obj.updatedAt = Date.now();
     });
 
@@ -57,6 +58,7 @@ export class RecipeDB extends Dexie {
         ],
         tags: ["svenskt", "snabbt"],
         categories: ["middag", "dessert"],
+        createdAt: now,
         updatedAt: now,
       },
       {
@@ -78,6 +80,7 @@ export class RecipeDB extends Dexie {
         ],
         tags: ["klassiker"],
         categories: ["middag"],
+        createdAt: now,
         updatedAt: now,
       },
     ];

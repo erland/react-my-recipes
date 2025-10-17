@@ -15,20 +15,23 @@ import {
   ListItemText,
   ListItemSecondaryAction,
 } from "@mui/material";
-import { Add, Edit } from "@mui/icons-material";
+import { Add, Edit, Favorite, FavoriteBorder } from "@mui/icons-material";
 import { useTranslation } from "react-i18next";
 import { useRecipeSearch } from "@/hooks/useRecipeSearch";
 import { Link } from "react-router-dom";
 import RecipeDialog from "./RecipeDialog";
 import type { Recipe } from "@/types/recipe";
 import { fullName } from "@/utils/nameUtils"; // future placeholder, optional
+import { useDebouncedValue } from "@/hooks/useDebouncedValue";
+import { db } from "@/db/schema";
 
 export default function RecipesPage() {
   const { t } = useTranslation();
   const [search, setSearch] = React.useState("");
   const [maxTime, setMaxTime] = React.useState(180);
 
-  const recipes = useRecipeSearch({ query: search, maxTime });
+  const debouncedSearch = useDebouncedValue(search, 250);
+  const recipes = useRecipeSearch({ query: debouncedSearch, maxTime });
 
   const [dialogOpen, setDialogOpen] = React.useState(false);
   const [editingRecipe, setEditingRecipe] = React.useState<Recipe | null>(null);
@@ -95,6 +98,18 @@ export default function RecipesPage() {
                     />
                   </ListItemButton>
                   <ListItemSecondaryAction>
+                    <Tooltip title={r.favorite ? t("recipes.unfavorite") : t("recipes.favorite")}>
+                      <IconButton
+                        size="small"
+                        onClick={async (e) => {
+                          e.preventDefault();
+                          await db.recipes.update(r.id, { favorite: !r.favorite });
+                        }}
+                        aria-label={r.favorite ? t("recipes.unfavorite") : t("recipes.favorite")}
+                      >
+                        {r.favorite ? <Favorite /> : <FavoriteBorder />}
+                      </IconButton>
+                    </Tooltip>
                     <Tooltip title={t("recipes.edit")}>
                       <IconButton
                         color="primary"

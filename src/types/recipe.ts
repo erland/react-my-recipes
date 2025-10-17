@@ -38,5 +38,6 @@ export interface Recipe {
   sourceUrl?: string;
   sourceName?: string;
   notes?: string;
+  createdAt: number;
   updatedAt: number;
 }
