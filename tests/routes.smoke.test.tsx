@@ -1,4 +1,4 @@
-import { render } from "@testing-library/react";
+import { render, screen } from "@testing-library/react";
 import { createMemoryRouter, RouterProvider } from "react-router-dom";
 import AppLayout from "../src/app/AppLayout";
 import RecipesPage from "../src/features/recipes/RecipesPage";
@@ -19,6 +19,7 @@ test("renders routes without crashing", () => {
       ],
     },
   ]);
-  const { getByText } = render(<RouterProvider router={router} />);
-  expect(getByText("Recept")).toBeInTheDocument();
+
+  render(<RouterProvider router={router} />);
+  expect(screen.getByLabelText("Sök i allt…")).toBeInTheDocument();
 });
