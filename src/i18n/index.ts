@@ -16,7 +16,12 @@ const resources = {
       "settings.installPwa": "Installera som PWA (systemdialog)",
       "settings.note": "Fler inställningar kommer i senare steg (synk, export/import, språk med mera).",
       "recipeDetail.title": "Receptdetalj – ID: {{id}}",
-      "recipeDetail.placeholder": "Detaljvy och borttagning implementeras i steg 3."
+      "recipeDetail.placeholder": "Detaljvy och borttagning implementeras i steg 3.",
+      "recipes.loading": "Laddar recept…",
+      "recipes.noResults": "Inga recept hittades.",
+      "recipes.noTime": "Ingen tid angiven",
+      "recipes.addNew": "Lägg till nytt recept",
+      "recipes.edit": "Redigera recept",
     }
   }
 };
