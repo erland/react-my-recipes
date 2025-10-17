@@ -1,21 +1,23 @@
 import Dexie, { Table } from "dexie";
 import type { Recipe, ImageAsset } from "@/types/recipe";
+import type { SyncState } from "@/types/sync";
 import { v4 as uuidv4 } from "uuid";
 
 export class RecipeDB extends Dexie {
   recipes!: Table<Recipe, string>;
   images!: Table<ImageAsset, string>;
+  syncState!: Table<SyncState, string>;
 
   constructor() {
     super("recipeDB");
 
-    this.version(1).stores({
-      recipes:
-        "id, title, updatedAt, favorite, *tags, *categories, totalTimeMin, cookTimeMin, prepTimeMin",
+    this.version(2).stores({
+      recipes: "id, title, updatedAt, favorite, *tags, *categories, totalTimeMin, cookTimeMin, prepTimeMin",
       images: "id, updatedAt",
+      syncState: "id, lastSyncAt", // id = "google-drive"
     });
 
-    this.recipes.hook("creating", (primKey, obj) => {
+    this.recipes.hook("creating", (pk, obj) => {
       if (!obj.id) obj.id = uuidv4();
       if (!obj.createdAt) obj.createdAt = Date.now();
       obj.updatedAt = Date.now();
@@ -36,7 +38,6 @@ export class RecipeDB extends Dexie {
 
   async seedDemoData() {
     const now = Date.now();
-
     const demoRecipes: Recipe[] = [
       {
         id: "demo-1",
@@ -84,8 +85,7 @@ export class RecipeDB extends Dexie {
         updatedAt: now,
       },
     ];
-
-    await this.recipes.bulkPut(demoRecipes);
+    await this.recipes.bulkAdd(demoRecipes.map((r) => ({ ...r, createdAt: now, updatedAt: now })));
   }
 }
 

@@ -9,3 +9,4 @@ coverage
 tsconfig.tsbuildinfo
 test-results
 digest.txt
+.env.local

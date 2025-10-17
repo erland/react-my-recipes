@@ -8,14 +8,13 @@ import RecipeDetail from "./features/recipes/RecipeDetail";
 import SettingsPage from "./features/settings/SettingsPage";
 import "./i18n";
 import { ensurePersistentStorage, logStorageEstimate } from "@/utils/persistence";
+import { useAutoSyncToast } from "@/utils/autoSyncToast";
 
 // Ask for durable storage as soon as possible (non-blocking)
 ensurePersistentStorage().then((ok) => {
-  // eslint-disable-next-line no-console
   console.log("[storage] persistent granted:", ok);
 });
 logStorageEstimate();
-
 
 const theme = createTheme({
   palette: {
@@ -24,7 +23,6 @@ const theme = createTheme({
   },
 });
 
-// ✅ Updated router with v7-compatible "future" options
 const router = createBrowserRouter(
   [
     {
@@ -39,8 +37,6 @@ const router = createBrowserRouter(
     },
   ],
   {
-    // 👇 This block silences warnings on v6.22+
-    // and has no effect once you upgrade to v7.
     future: {
       v7_startTransition: true,
       v7_relativeSplatPath: true,
@@ -48,11 +44,29 @@ const router = createBrowserRouter(
   }
 );
 
+function Root() {
+  const { triggerAutoSync, Toast } = useAutoSyncToast();
+
+  React.useEffect(() => {
+    triggerAutoSync("startup");
+    const handler = () => triggerAutoSync("online");
+    window.addEventListener("online", handler);
+    return () => window.removeEventListener("online", handler);
+  }, [triggerAutoSync]);
+
+  return (
+    <>
+      <RouterProvider router={router} />
+      {Toast}
+    </>
+  );
+}
+
 ReactDOM.createRoot(document.getElementById("root")!).render(
   <React.StrictMode>
     <ThemeProvider theme={theme}>
       <CssBaseline />
-      <RouterProvider router={router} />
+      <Root />
     </ThemeProvider>
   </React.StrictMode>
 );
