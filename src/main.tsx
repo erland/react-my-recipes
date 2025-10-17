@@ -5,7 +5,7 @@ import { CssBaseline, ThemeProvider, createTheme } from "@mui/material";
 import AppLayout from "./app/AppLayout";
 import RecipesPage from "./features/recipes/RecipesPage";
 import RecipeDetail from "./features/recipes/RecipeDetail";
-import SettingsPage from "./app/SettingsPage";
+import SettingsPage from "./features/settings/SettingsPage";
 import "./i18n";
 
 const theme = createTheme({

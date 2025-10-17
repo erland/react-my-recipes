@@ -3,7 +3,7 @@ import { createMemoryRouter, RouterProvider } from "react-router-dom";
 import AppLayout from "../src/app/AppLayout";
 import RecipesPage from "../src/features/recipes/RecipesPage";
 import RecipeDetail from "../src/features/recipes/RecipeDetail";
-import SettingsPage from "../src/app/SettingsPage";
+import SettingsPage from "../src/features/settings/SettingsPage";
 import "../src/i18n";
 
 test("renders routes without crashing", () => {
