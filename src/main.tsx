@@ -10,6 +10,16 @@ import "./i18n";
 import { ensurePersistentStorage, logStorageEstimate } from "@/utils/persistence";
 import { useAutoSyncToast } from "@/utils/autoSyncToast";
 
+// ✅ import Dexie instance early
+import { db } from "@/db/schema";
+
+// ✅ expose globally (use ts-ignore for build)
+ // @ts-ignore
+if (import.meta.env.DEV) {
+  (window as any).db = db;
+  console.log("[debug] window.db exposed");
+}
+
 // Ask for durable storage as soon as possible (non-blocking)
 ensurePersistentStorage().then((ok) => {
   console.log("[storage] persistent granted:", ok);

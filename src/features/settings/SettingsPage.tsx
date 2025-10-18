@@ -108,29 +108,32 @@ export default function SettingsPage() {
     const prev = await db.syncState.get("google-drive");
     await db.syncState.put(
       {
-        ...(prev ?? { id: "google-drive" }),
-        id: "google-drive",
+        ...(prev ?? { id: "google-drive" as const }),
+        id: "google-drive" as const,
         autoSync: checked,
       },
       "google-drive"
     );
   }
-
+  
   async function disconnectDrive() {
     await signOutDrive();
+  
     const prev = await db.syncState.get("google-drive");
+    // ✅ Only clear Drive linkage — keep access token & expiry intact
     await db.syncState.put(
       {
-        ...(prev ?? { id: "google-drive" }),
-        id: "google-drive",
+        ...(prev ?? { id: "google-drive" as const }),
+        id: "google-drive" as const,
         recipesFileId: undefined,
         driveFolderId: undefined,
       },
       "google-drive"
     );
+  
     setStatus(String(t("settings.sync.disconnected")));
   }
-
+  
   return (
     <Box>
       <Typography variant="h5">{t("settings.title")}</Typography>

@@ -14,7 +14,7 @@ function byId<T extends { id: string }>(arr: T[]): Record<string, T> {
 }
 
 function lwwMerge(local: Recipe[], remote: Recipe[]): Recipe[] {
-  // MVP: recipe-level LWW by `updatedAt`. (Upgrade to field-level when timestamps exist per field.)
+  // MVP: recipe-level LWW by `updatedAt`.
   const L = byId(local);
   const R = byId(remote);
   const ids = new Set([...Object.keys(L), ...Object.keys(R)]);
@@ -50,13 +50,13 @@ export async function syncNow(): Promise<SyncResult> {
   const remote = (remotePayload?.data?.recipes ?? []) as Recipe[];
   const merged = lwwMerge(local, remote);
 
-  // Write back to Dexie (replace all for simplicity)
+  // Replace all recipes with merged set
   await db.transaction("rw", db.recipes, async () => {
     await db.recipes.clear();
     await db.recipes.bulkAdd(merged);
   });
 
-  // Upload merged to Drive
+  // Upload merged dataset back to Drive
   const payload: RemotePayloadV1 = {
     format: "recipebox.sync.v1",
     exportedAt: new Date().toISOString(),
@@ -64,12 +64,12 @@ export async function syncNow(): Promise<SyncResult> {
   };
   await uploadRecipesJson(state.recipesFileId, payload);
 
-  // MERGE-SAFE WRITE: keep existing fields in syncState
+  // ✅ MERGE-SAFE WRITE: keep accessToken and other fields intact
   const prev = await db.syncState.get("google-drive");
   await db.syncState.put(
     {
-      ...(prev ?? { id: "google-drive" }),
-      id: "google-drive",
+      ...(prev ?? { id: "google-drive" as const }),
+      id: "google-drive" as const,
       lastSyncAt: Date.now(),
       lastError: null,
     },

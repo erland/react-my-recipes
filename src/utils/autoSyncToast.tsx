@@ -24,8 +24,9 @@ export function useAutoSyncToast() {
   const triggerAutoSync = React.useCallback(async (_reason: string) => {
     try {
       const st = await db.syncState.get("google-drive");
-      // Only run if auto-sync is enabled AND user has connected before
       const connected = !!(st?.recipesFileId || st?.driveFolderId);
+
+      // Only run if auto-sync is enabled AND user has connected before
       if (!st?.autoSync || !connected) return;
 
       const now = Date.now();
@@ -36,12 +37,12 @@ export function useAutoSyncToast() {
 
       await syncNow();
 
-      // MERGE-SAFE WRITE
+      // ✅ MERGE-SAFE WRITE (preserves token + settings)
       const prev = await db.syncState.get("google-drive");
       await db.syncState.put(
         {
-          ...(prev ?? { id: "google-drive" }),
-          id: "google-drive",
+          ...(prev ?? { id: "google-drive" as const }),
+          id: "google-drive" as const,
           lastSyncAt: Date.now(),
           lastError: null,
         },
@@ -50,16 +51,17 @@ export function useAutoSyncToast() {
 
       setSnack({ open: true, msg: "Synk klar ✓", severity: "success" });
     } catch (err: any) {
-      // MERGE-SAFE WRITE
+      // ✅ MERGE-SAFE WRITE (preserves token)
       const prev = await db.syncState.get("google-drive");
       await db.syncState.put(
         {
-          ...(prev ?? { id: "google-drive" }),
-          id: "google-drive",
+          ...(prev ?? { id: "google-drive" as const }),
+          id: "google-drive" as const,
           lastError: String(err?.message || err),
         },
         "google-drive"
       );
+
       setSnack({ open: true, msg: "Synk misslyckades", severity: "error" });
     } finally {
       lastAtRef.current = Date.now();

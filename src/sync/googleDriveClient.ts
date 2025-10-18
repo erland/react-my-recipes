@@ -1,28 +1,24 @@
 /*
  * Google Drive client (MVP, no backend):
  * - Uses Google Identity Services "token" flow (no refresh token). When expired, we re-prompt.
- * - Default scope: drive.file (restrict to files the app creates). Broader scopes are supported if you set SCOPES below.
- * - Creates/uses folder structure: /RecipeBox/db/recipes.json
+ * - Scope: drive.file (only files the app creates)
+ * - Layout: /RecipeBox/db/recipes.json
  */
 
 import type { SyncState } from "@/types/sync";
 import { db } from "@/db/schema";
+import Dexie from "dexie";
 
 const GDRIVE_API = "https://www.googleapis.com/drive/v3";
 const GDRIVE_UPLOAD_API = "https://www.googleapis.com/upload/drive/v3";
-const APP_ROOT = "RecipeBox"; // user-visible root folder
+const APP_ROOT = "RecipeBox";
 
-// Configure via Vite env (define in .env.local)
+// Vite env
 const CLIENT_ID = ((import.meta as any).env?.VITE_GOOGLE_OAUTH_CLIENT_ID ?? "") as string;
+// Minimal scope to avoid verification friction
+const SCOPES = "https://www.googleapis.com/auth/drive.file";
 
-// Choose your scope strategy:
-// - Minimal, no-verification path (recommended for MVP/personal use):
-//   const SCOPES = "https://www.googleapis.com/auth/drive.file";
-// - Broader (if you have legacy files or run into access issues):
-//   const SCOPES = "https://www.googleapis.com/auth/drive";
-const SCOPES = "https://www.googleapis.com/auth/drive";
-
-// ---------------- Token management (single-prompt, reuse, cache) -------------
+// ---------------- Token management ----------------
 let tokenCache: { token: string; expiresAt: number } | null = null;
 let tokenPromise: Promise<string> | null = null;
 
@@ -40,43 +36,41 @@ async function ensureGisLoaded(): Promise<void> {
 }
 
 function isTokenValid(t?: { token: string; expiresAt: number } | null) {
-  if (!t) return false;
-  return t.expiresAt - 10_000 > Date.now();
+  return !!t && t.expiresAt - 10_000 > Date.now();
 }
 
-async function getValidToken(): Promise<string> {
-  // 1) In-memory cache first (prevents double prompts in one run)
+export async function getValidToken(): Promise<string> {
+  // 1) In-memory
   if (isTokenValid(tokenCache)) return tokenCache!.token;
 
-  // 2) If another request is in-flight, reuse it.
+  // 2) Reuse in-flight
   if (tokenPromise) return tokenPromise;
 
-  // 3) Try DB cache (persists across reloads)
-  const state = await db.syncState.get("google-drive");
-  if (state?.accessToken && state?.accessTokenExpiresAt && state.accessTokenExpiresAt - 10_000 > Date.now()) {
-    tokenCache = { token: state.accessToken, expiresAt: state.accessTokenExpiresAt };
-    return state.accessToken;
+  // 3) Dexie cache
+  const cached = await db.syncState.get("google-drive");
+  if (
+    cached?.accessToken &&
+    cached?.accessTokenExpiresAt &&
+    cached.accessTokenExpiresAt - 10_000 > Date.now()
+  ) {
+    tokenCache = { token: cached.accessToken, expiresAt: cached.accessTokenExpiresAt };
+    return cached.accessToken;
   }
 
-  // 4) Acquire a fresh token (single flight)
+  // 4) Acquire new
   tokenPromise = (async () => {
     await ensureGisLoaded();
     const google = (window as any).google;
-
-    const promptMode =
-      state?.accessToken && state?.accessTokenExpiresAt && state.accessTokenExpiresAt > Date.now()
-        ? "" // silent if possible
-        : "consent"; // first time (or if we explicitly want to show)
 
     return await new Promise<string>((resolve, reject) => {
       const tokenClient = google.accounts.oauth2.initTokenClient({
         client_id: CLIENT_ID,
         scope: SCOPES,
-        // We'll override `prompt` in requestAccessToken so we can switch modes dynamically.
-        callback: async (resp: any) => {
+        callback: (resp: any) => {
           if (resp.error) {
             tokenPromise = null;
-            return reject(new Error(resp.error));
+            reject(new Error(resp.error));
+            return;
           }
           const token = resp.access_token as string;
           const expiresIn = (resp.expires_in as number) ?? 3600;
@@ -84,25 +78,36 @@ async function getValidToken(): Promise<string> {
 
           tokenCache = { token, expiresAt };
 
-          // MERGE-SAFE WRITE: do not wipe existing keys (recipesFileId, driveFolderId, autoSync, etc.)
-          const prev = await db.syncState.get("google-drive");
-          await db.syncState.put(
-            {
-              ...(prev ?? { id: "google-drive" }),
-              id: "google-drive",
-              accessToken: token,
-              accessTokenExpiresAt: expiresAt,
-              lastError: null,
-            },
-            "google-drive"
-          );
+          // Persist token in a Dexie-safe context and with an explicit key.
+          Dexie.waitFor(
+            (async () => {
+              const prev = await db.syncState.get("google-drive");
+              const next: SyncState = {
+                ...(prev ?? { id: "google-drive" as const }),
+                id: "google-drive" as const,
+                accessToken: token,
+                accessTokenExpiresAt: expiresAt,
+                lastError: null,
+              };
+              await db.syncState.put(next, "google-drive" as const);
+              // eslint-disable-next-line no-console
+              console.log(
+                "[drive] token persisted to Dexie (expires at)",
+                new Date(expiresAt).toISOString()
+              );
+              const verify = await db.syncState.get("google-drive");
+              // eslint-disable-next-line no-console
+              console.log("[drive] verify Dexie after put:", verify);
+            })()
+          ).catch((err) => console.error("[drive] Dexie waitFor failed:", err));
 
           tokenPromise = null;
           resolve(token);
         },
       });
 
-      tokenClient.requestAccessToken({ prompt: promptMode });
+      // Try silent first; consent only if needed
+      tokenClient.requestAccessToken({ prompt: cached?.accessToken ? "" : "consent" });
     });
   })();
 
@@ -113,15 +118,12 @@ async function getValidToken(): Promise<string> {
   }
 }
 
-// -------------------- Low-level HTTP helpers ---------------------------------
+// ---------------- Low-level HTTP helpers ---------------
 async function gdriveFetch(path: string, init: RequestInit = {}): Promise<any> {
   const token = await getValidToken();
   const res = await fetch(`${GDRIVE_API}${path}`, {
     ...init,
-    headers: {
-      ...(init.headers || {}),
-      Authorization: `Bearer ${token}`,
-    },
+    headers: { ...(init.headers || {}), Authorization: `Bearer ${token}` },
   });
   if (!res.ok) {
     const text = await res.text().catch(() => "");
@@ -165,7 +167,7 @@ async function gdriveUploadMultipart(meta: Record<string, any>, body: Blob | str
 async function gdrivePatchMultipart(fileId: string, json: any): Promise<Response> {
   const token = await getValidToken();
   const boundary = `rb_${Math.random().toString(36).slice(2)}`;
-  const meta = { name: "recipes.json" }; // include valid fields for PATCH
+  const meta = { name: "recipes.json" };
   const metaStr = JSON.stringify(meta);
   const bodyStr = JSON.stringify(json);
   const delimiter = `\r\n--${boundary}\r\n`;
@@ -190,14 +192,14 @@ async function gdrivePatchMultipart(fileId: string, json: any): Promise<Response
   });
 }
 
-// ----------------------- Folder & File helpers -------------------------------
+// ---------------- Folder & File helpers ----------------
 async function findByNameInParent(name: string, parentId?: string): Promise<string | undefined> {
-  // Build Drive v3 search query. Top-level files live under 'root'.
-  // Escape backslashes and single quotes inside the name literal.
   const safeName = name.replace(/\\/g, "\\\\").replace(/'/g, "\\'");
   const parentExpr = parentId ? `'${parentId}' in parents` : `'root' in parents`;
   const q = `name = '${safeName}' and ${parentExpr} and trashed = false`;
-  const res = await gdriveFetch(`/files?q=${encodeURIComponent(q)}&fields=files(id,name,parents,mimeType)`);
+  const res = await gdriveFetch(
+    `/files?q=${encodeURIComponent(q)}&fields=files(id,name,parents,mimeType)`
+  );
   return res.files?.[0]?.id;
 }
 
@@ -227,12 +229,12 @@ async function ensurePath(path: string[]): Promise<string> {
   return parent!;
 }
 
-// ------------------- Public API (used by sync engine/UI) ---------------------
+// ---------------- Public API ----------------
 export async function ensureDriveLayout(): Promise<SyncState> {
-  const state = (await db.syncState.get("google-drive")) ?? { id: "google-drive" };
+  // NOTE: do NOT capture state once and write it back later (race with token write).
+  // Always re-read latest state right before writing to avoid clobbering accessToken.
   const rootId = await ensurePath([APP_ROOT, "db"]);
 
-  // Ensure recipes.json exists
   const existingFileId = await findByNameInParent("recipes.json", rootId);
   let recipesFileId = existingFileId;
   if (!recipesFileId) {
@@ -248,12 +250,15 @@ export async function ensureDriveLayout(): Promise<SyncState> {
     recipesFileId = created.id as string;
   }
 
+  // ⬇️ Re-read latest row and merge to avoid wiping tokens (fixes the race you’re seeing)
+  const latest = (await db.syncState.get("google-drive")) ?? ({ id: "google-drive" as const } as SyncState);
   const next: SyncState = {
-    ...state,
+    ...latest,
+    id: "google-drive" as const,
     driveFolderId: rootId,
     recipesFileId,
   };
-  await db.syncState.put(next, "google-drive");
+  await db.syncState.put(next, "google-drive" as const);
   return next;
 }
 
@@ -263,7 +268,6 @@ export async function downloadRecipesJson(fileId: string): Promise<any> {
     headers: { Authorization: `Bearer ${token}` },
   });
   if (res.status === 403 || res.status === 404) {
-    // Not accessible / Not found — bubble up, caller may self-heal.
     const text = await res.text().catch(() => "");
     throw new Error(`Download failed ${res.status}: ${text}`);
   }
@@ -271,34 +275,29 @@ export async function downloadRecipesJson(fileId: string): Promise<any> {
   return await res.json();
 }
 
-// Upload with self-heal: if 403/404, recreate file in current folder and retry once.
 export async function uploadRecipesJson(fileId: string, json: any): Promise<void> {
   const res = await gdrivePatchMultipart(fileId, json);
-
   if (res.status === 403 || res.status === 404) {
-    // Self-heal: recreate file under the current folder id, then retry once.
     const state = await db.syncState.get("google-drive");
     const folderId = state?.driveFolderId;
     if (!folderId) throw new Error(`Upload failed ${res.status} and driveFolderId is missing`);
 
-    // Create a fresh file owned/accessible by the current token
     const created = await gdriveUploadMultipart(
       { name: "recipes.json", parents: [folderId], mimeType: "application/json" },
       JSON.stringify(json)
     );
     const newFileId = created.id as string;
 
-    // MERGE-SAFE WRITE: keep existing flags/ids
     const prev = await db.syncState.get("google-drive");
     await db.syncState.put(
       {
-        ...(prev ?? { id: "google-drive" }),
-        id: "google-drive",
+        ...(prev ?? { id: "google-drive" as const }),
+        id: "google-drive" as const,
         recipesFileId: newFileId,
       },
-      "google-drive"
+      "google-drive" as const
     );
-    return; // success after recreate
+    return;
   }
 
   if (!res.ok) {
@@ -313,15 +312,14 @@ export async function signOutDrive() {
     const token = (await db.syncState.get("google-drive"))?.accessToken;
     google?.accounts?.oauth2?.revoke?.(token, () => {});
   } catch {}
-  // MERGE-SAFE WRITE: clear only token fields
   const prev = await db.syncState.get("google-drive");
   await db.syncState.put(
     {
-      ...(prev ?? { id: "google-drive" }),
-      id: "google-drive",
+      ...(prev ?? { id: "google-drive" as const }),
+      id: "google-drive" as const,
       accessToken: null,
       accessTokenExpiresAt: null,
     },
-    "google-drive"
+    "google-drive" as const
   );
 }
