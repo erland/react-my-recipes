@@ -68,7 +68,7 @@ This plan is optimized for fast, reliable delivery of v1.0 based on your specifi
 
 - **View**
   - Title, hero image/gallery
-  - Servings (with scaling), times, steps (optional timers), tags/categories/allergens, source, notes, rating/favorite
+  - times, steps, tags/categories/allergens, source, notes, favorite
 - **Delete Policy**
   - **Delete only from detail view** (trash in app bar → confirm → navigate back)
   - Optional Edit button (opens the same dialog)
@@ -102,7 +102,7 @@ This plan is optimized for fast, reliable delivery of v1.0 based on your specifi
   - `/RecipeBox/images/<id>.webp`
 - **Sync Strategy**
   - On startup and on network regain, reconcile local vs cloud
-  - Per‑field Last‑Write‑Wins (LWW)
+  - Per‑recipe Last‑Write‑Wins (LWW)
   - Batched image uploads
   - Non‑blocking error banner with “Try again”
 - **Future Sharing**

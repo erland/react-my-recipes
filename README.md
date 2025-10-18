@@ -16,14 +16,9 @@
 **Included**
 - Recipe CRUD: create, read, edit (in list), delete (in detail).
 - Recipes list with **search everything** + **max total time** filter.
-- Favorite flag and optional rating (used internally; no sort UI).
+- Favorite flag on recipes
 - Import from URL (schema.org JSON-LD) and paste-in text; export/backup (JSON/ZIP).
 - Offline-first PWA and cloud sync (one provider in MVP).
-
-**Not included in v1.0**
-- Pantry.
-- Shopping list.
-- Meal planning.
 
 ## 3) Navigation & Screens
 - **Tabs (mobile):** Recipes • More
@@ -48,7 +43,7 @@
 - **Default ordering:** Most recently updated first (no visible sort control).
 
 ### 4.2 Recipe detail
-- Title, images, servings (scaling), times (prep/cook/total), steps with timers, tags, categories, allergens, source, notes, rating, favorite.
+- Title, images, times (prep/cook/total), steps, tags, categories, allergens, source, notes, rating, favorite.
 - **Delete** — trash icon in app bar → confirm dialog → returns to list.
 - **Edit** — button/icon opens the same dialog as in the list.
 
@@ -92,6 +87,11 @@
 ## 7) Future (out of v1.0)
 - Pantry, Shopping list, Meal planning.
 - CRDT sync and end-to-end encryption (E2E).
+- Pantry.
+- Shopping list.
+- Meal planning.
+- Ratings on recipes
+- Servings (scaling) in recipe detail
 
 ---
 
@@ -110,14 +110,12 @@ type ID = string;
 
 export interface IngredientRef {
   name: string;
-  quantity?: number;
-  unit?: string;
+  quantity?: string;
   optional?: boolean;
   notes?: string;
 }
 
-export interface RecipeStep { id: ID; text: string; timerSec?: number; imageId?: ID; }
-export interface Nutrition { kcal?: number; proteinG?: number; fatG?: number; carbsG?: number; }
+export interface RecipeStep { id: ID; text: string; }
 
 export interface Recipe {
   id: ID;
@@ -127,17 +125,14 @@ export interface Recipe {
   tags: string[];
   categories: string[];
   allergens: string[];
-  servings: number;
   totalTimeMin?: number;
   prepTimeMin?: number;
   cookTimeMin?: number;
   difficulty?: "easy" | "medium" | "hard";
   ingredients: IngredientRef[];
   steps: RecipeStep[];
-  nutrition?: Nutrition;
   sourceUrl?: string;
   sourceName?: string;
-  rating?: number;
   favorite?: boolean;
   createdAt: string;
   updatedAt: string;
@@ -172,7 +167,7 @@ export interface ImageAsset {
 ## E) Cloud Sync (backend-less)
 - **MVP provider:** Google Drive (App folder), later OneDrive/Dropbox.
 - **File layout:** `/RecipeBox/db/recipes.json` (LWW) and `/RecipeBox/images/<id>.webp`.
-- **Conflicts:** Last-Write-Wins per field (`updatedAt` timestamps).
+- **Conflicts:** Last-Write-Wins per recipe (`updatedAt` timestamps).
 - **Auth:** OAuth2 PKCE; tokens stored in IndexedDB.
 
 ## F) PWA & Offline
