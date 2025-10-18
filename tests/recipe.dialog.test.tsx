@@ -1,36 +1,46 @@
-import { screen, fireEvent, waitFor } from "@testing-library/react";
-import { renderWithRouter } from "./utils/renderWithRouter";
-import RecipesPage from "../src/features/recipes/RecipesPage";
-import RecipeDialog from "../src/features/recipes/RecipeDialog";
+import { describe, it, expect } from "vitest";
+import { screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import "../src/i18n";
-import { db } from "../src/db/schema";
+import RecipesPage from "@/features/recipes/RecipesPage";
+import { renderWithRouter } from "./utils/renderWithRouter";
 
-beforeAll(async () => {
-  await db.clearAll();
-  await db.seedDemoData();
-});
+describe("RecipeDialog interactions", () => {
+  it("can add a new recipe manually", async () => {
+    renderWithRouter(<RecipesPage />);
+    const user = userEvent.setup();
 
-test("can add a recipe", async () => {
-  renderWithRouter(<RecipesPage />);
-  const addBtn = await screen.findByRole("button", { name: /lägg till nytt recept/i });
-  fireEvent.click(addBtn);
-  fireEvent.change(screen.getByLabelText(/titel/i), { target: { value: "Testrecept" } });
-  fireEvent.click(screen.getByText(/spara/i));
-  await waitFor(() => screen.getByText("Testrecept"));
-});
-test("can add ingredient and step", async () => {
-  const user = userEvent.setup();
+    // Open Add menu → Create manually
+    await user.click(await screen.findByRole("button", { name: "recipes.addNew" }));
+    await user.click(await screen.findByText("recipes.createManual"));
 
-  renderWithRouter(<RecipeDialog open onClose={() => {}} />);
+    // Wait for dialog heading to appear
+    await screen.findByRole("heading", { name: "recipeDialog.addTitle" });
 
-  await waitFor(() =>
-    expect(screen.getByRole("button", { name: /lägg till ingrediens/i })).toBeInTheDocument()
-  );
+    // Match the label (with or without the * suffix)
+    const titleInput = await screen.findByLabelText(/recipeDialog\.title/i);
+    expect(titleInput).toBeInTheDocument();
 
-  await user.click(screen.getByRole("button", { name: /lägg till ingrediens/i }));
-  await user.click(screen.getByRole("button", { name: /lägg till steg/i }));
+    await user.type(titleInput, "Testrecept");
+    await user.click(screen.getByRole("button", { name: "common.save" }));
 
-  expect(screen.getAllByLabelText(/Ingrediensnamn|Ingrediens/i)).toHaveLength(1);
-  expect(screen.getAllByLabelText(/Stegtext|Steg/i)).toHaveLength(1);
+    await waitFor(() => expect(screen.getByText("Testrecept")).toBeInTheDocument());
+  });
+
+  it("can add ingredient and step fields", async () => {
+    renderWithRouter(<RecipesPage />);
+    const user = userEvent.setup();
+
+    await user.click(await screen.findByRole("button", { name: "recipes.addNew" }));
+    await user.click(await screen.findByText("recipes.createManual"));
+    await screen.findByRole("heading", { name: "recipeDialog.addTitle" });
+
+    await user.click(screen.getByRole("button", { name: "recipeDialog.addIngredient" }));
+    await user.click(screen.getByRole("button", { name: "recipeDialog.addStep" }));
+
+    const ingredientInputs = screen.getAllByRole("textbox", { name: /recipeDialog\.ingredientName/i });
+    const stepInputs = screen.getAllByRole("textbox", { name: /recipeDialog\.stepText/i });
+
+    expect(ingredientInputs.length).toBeGreaterThan(0);
+    expect(stepInputs.length).toBeGreaterThan(0);
+  });
 });

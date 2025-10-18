@@ -27,12 +27,14 @@ export default function SettingsPage() {
   const [autoSync, setAutoSync] = React.useState<boolean>(false);
   const [status, setStatus] = React.useState<string>("");
 
+  const fileInputRef = React.useRef<HTMLInputElement>(null);
+
   React.useEffect(() => {
     (async () => {
       const st = await db.syncState.get("google-drive");
       setAutoSync(!!st?.autoSync);
       const connected = !!(st?.recipesFileId && st?.driveFolderId);
-      setStatus(connected ? t("settings.sync.connected") : t("settings.sync.disconnected"));
+      setStatus(connected ? String(t("settings.sync.connected")) : String(t("settings.sync.disconnected")));
     })();
   }, [t]);
 
@@ -46,24 +48,30 @@ export default function SettingsPage() {
     }
   }
 
-  const fileInputRef = React.useRef<HTMLInputElement>(null);
   function handleImportClick() {
     fileInputRef.current?.click();
   }
-  async function handleImportSelected(ev: React.ChangeEvent<HTMLInputElement>) {
-    const file = ev.target.files?.[0];
+
+  async function handleImportSelected(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
     if (!file) return;
     try {
       const res = await importRecipesFromJsonFile(file);
       setSnack({
         open: true,
         severity: "success",
-        message: String(t("settings.import.success", res as any)),
+        message: String(
+          t("settings.import.success", {
+            total: res.total,
+            added: res.added,
+            updated: res.updated,
+          })
+        ),
       });
     } catch {
       setSnack({ open: true, severity: "error", message: String(t("settings.import.error")) });
     } finally {
-      ev.target.value = "";
+      e.target.value = "";
     }
   }
 
@@ -115,12 +123,10 @@ export default function SettingsPage() {
       "google-drive"
     );
   }
-  
+
   async function disconnectDrive() {
     await signOutDrive();
-  
     const prev = await db.syncState.get("google-drive");
-    // ✅ Only clear Drive linkage — keep access token & expiry intact
     await db.syncState.put(
       {
         ...(prev ?? { id: "google-drive" as const }),
@@ -130,10 +136,9 @@ export default function SettingsPage() {
       },
       "google-drive"
     );
-  
     setStatus(String(t("settings.sync.disconnected")));
   }
-  
+
   return (
     <Box>
       <Typography variant="h5">{t("settings.title")}</Typography>
@@ -180,7 +185,7 @@ export default function SettingsPage() {
             <input
               ref={fileInputRef}
               type="file"
-              accept="application/json,.json"
+              accept="application/json,json"
               onChange={handleImportSelected}
               style={{ display: "none" }}
             />
