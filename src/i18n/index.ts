@@ -59,6 +59,9 @@ const resources = {
       "recipeDialog.editTitle": "Redigera recept",
       "recipeDialog.image": "Bild",
       "recipeDialog.noImage": "Ingen bild vald",
+      "recipeDialog.addImage": "Lägg till bild",
+      "recipeDialog.changeImage": "Ändra bild",
+      "recipeDialog.removeImage": "Ta bort bild",
       
       // Common
       "common.cancel": "Avbryt",
