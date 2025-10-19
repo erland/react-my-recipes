@@ -1,4 +1,3 @@
-import { db } from "@/db/schema";
 import type { ImageAsset } from "@/types/recipe";
 import { v4 as uuidv4 } from "uuid";
 
@@ -79,20 +78,4 @@ export async function compressImage(
   );
 
   return { blob, width: ow, height: oh, mime };
-}
-
-/** Compress + store in IndexedDB, return saved ImageAsset */
-export async function saveImageFile(file: File): Promise<ImageAsset> {
-  const { blob, width, height, mime } = await compressImage(file);
-  const asset: ImageAsset = {
-    id: uuidv4(),
-    fileName: file.name,
-    width,
-    height,
-    mime,
-    updatedAt: Date.now(),
-    blob, // stored inline; not indexed -> OK
-  };
-  await db.images.put(asset);
-  return asset;
 }

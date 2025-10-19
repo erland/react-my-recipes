@@ -1,7 +1,7 @@
 import React from 'react';
 import { Box, Button, Stack, Typography } from '@mui/material';
 import { useTranslation } from 'react-i18next';
-import { saveImageFile } from '@/utils/imageUtils';
+import { saveImageFile } from '@/services/imagesService';
 import { useImageUrl } from '@/hooks/useImageUrl';
 
 export type ImagePickerProps = {
