@@ -18,7 +18,7 @@ import { useNavigate } from "react-router-dom";
 import RecipeDialog from "./RecipeDialog";
 import type { Recipe } from "@/types/recipe";
 import { useDebouncedValue } from "@/hooks/useDebouncedValue";
-import { db } from "@/db/schema";
+import * as recipesService from "@/services/recipesService";
 import { importRecipeFromUrl } from "@/features/import/urlImport";
 import { importRecipeFromPaste } from "@/features/import/pasteParser";
 import RecipesToolbar from "./RecipesToolbar";
@@ -60,11 +60,19 @@ export default function RecipesPage() {
     setDialogOpen(true);
   };
 
+  async function handleDialogSave(data: Partial<Recipe>, existingId?: string) {
+    if (existingId) {
+      await recipesService.updateRecipe(existingId, data);
+    } else {
+      await recipesService.createRecipe(data);
+    }
+  }
+
   async function handleSubmitUrl(url: string) {
     if (!url.trim()) return;
     try {
       const rec = await importRecipeFromUrl(url.trim());
-      await db.recipes.add(rec);
+      await recipesService.insertImportedRecipe(rec);
       setUrlOpen(false);
       setEditingRecipe(rec);
       setDialogOpen(true);
@@ -77,7 +85,7 @@ export default function RecipesPage() {
     if (!text.trim()) return;
     try {
       const rec = importRecipeFromPaste(text.trim());
-      await db.recipes.add(rec);
+      await recipesService.insertImportedRecipe(rec);
       setPasteOpen(false);
       setEditingRecipe(rec);
       setDialogOpen(true);
@@ -116,7 +124,7 @@ export default function RecipesPage() {
                 recipe={r as Recipe}
                 onClick={(id) => navigate(`/recipes/${id}`)}
                 onEdit={(id) => { const rec = (recipes as Recipe[]).find(x => x.id === id); if (rec) { setEditingRecipe(rec); setDialogOpen(true); } }}
-                onToggleFavorite={async (id, next) => { await db.recipes.update(id, { favorite: next }); }}
+                onToggleFavorite={async (id, next) => { await recipesService.setFavorite(id, next); }}
               />
             ))}
           </List>
@@ -160,7 +168,12 @@ export default function RecipesPage() {
       </Paper>
 
       {/* Manual create/edit */}
-      <RecipeDialog open={dialogOpen} onClose={() => setDialogOpen(false)} recipe={editingRecipe} />
+      <RecipeDialog
+        open={dialogOpen}
+        onClose={() => setDialogOpen(false)}
+        recipe={editingRecipe}
+        onSave={handleDialogSave}
+      />
 
       {/* URL import dialog */}
       <ImportFromUrlDialog

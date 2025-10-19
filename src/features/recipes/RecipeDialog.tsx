@@ -15,8 +15,6 @@ import {
 } from "@mui/material";
 import { ExpandMore } from "@mui/icons-material";
 import { useTranslation } from "react-i18next";
-import { db } from "@/db/schema";
-import { v4 as uuidv4 } from "uuid";
 import type { Recipe } from "@/types/recipe";
 
 import ImagePicker from "@/features/recipes/components/ImagePicker";
@@ -28,9 +26,11 @@ interface RecipeDialogProps {
   open: boolean;
   onClose: () => void;
   recipe?: Recipe | null;
+  /** Called with form data. Parent decides create vs update. */
+  onSave: (data: Partial<Recipe>, existingId?: string) => Promise<void> | void;
 }
 
-export default function RecipeDialog({ open, onClose, recipe }: RecipeDialogProps) {
+export default function RecipeDialog({ open, onClose, recipe, onSave }: RecipeDialogProps) {
   const { t } = useTranslation();
 
   const {
@@ -46,22 +46,8 @@ export default function RecipeDialog({ open, onClose, recipe }: RecipeDialogProp
 
   const handleSave = async () => {
     if (!title.trim()) return;
-
     const base = toPartial();
-
-    if (recipe?.id) {
-      await db.recipes.update(recipe.id, base);
-    } else {
-      const newRecipe: Recipe = {
-        id: uuidv4(),
-        ...base,
-        createdAt: Date.now(),
-        servings: 1,
-        tags: [],
-        categories: [],
-      } as Recipe;
-      await db.recipes.add(newRecipe);
-    }
+    await onSave(base, recipe?.id);
     onClose();
   };
 

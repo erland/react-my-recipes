@@ -16,7 +16,8 @@ import {
 import { ArrowBack, Delete, Edit } from "@mui/icons-material";
 import { useTranslation } from "react-i18next";
 import { useRecipeDetail } from "@/hooks/useRecipeDetail";
-import { db } from "@/db/schema";
+import * as recipesService from "@/services/recipesService";
+import type { Recipe } from "@/types/recipe";
 import RecipeDialog from "./RecipeDialog";
 import { useImageUrl } from "@/hooks/useImageUrl"; // keep this
 
@@ -36,13 +37,17 @@ export default function RecipeDetail() {
   const handleDelete = async () => {
     if (!id) return;
     if (confirm(t("recipeDetail.confirmDelete"))) {
-      await db.recipes.delete(id);
+      await recipesService.deleteRecipe(id);
       navigate("/recipes");
     }
   };
 
   const handleEdit = () => setDialogOpen(true);
   const handleDialogClose = () => setDialogOpen(false);
+  const handleDialogSave = async (data: Partial<Recipe>, existingId?: string) => {
+    if (!existingId) return; // detail page only edits existing
+    await recipesService.updateRecipe(existingId, data);
+  };
 
   if (!recipe)
     return (
@@ -165,7 +170,12 @@ export default function RecipeDetail() {
         </Button>
       </Paper>
 
-      <RecipeDialog open={dialogOpen} onClose={handleDialogClose} recipe={recipe} />
+      <RecipeDialog
+        open={dialogOpen}
+        onClose={handleDialogClose}
+        recipe={recipe}
+        onSave={handleDialogSave}
+      />
     </>
   );
 }
