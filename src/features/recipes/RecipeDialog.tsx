@@ -151,7 +151,7 @@ export default function RecipeDialog({ open, onClose, recipe }: RecipeDialogProp
           {/* --- Image (hero) --- */}
           <Box sx={{ mb: 1 }}>
             <Typography variant="subtitle2" sx={{ mb: 1 }}>
-              {"recipeDialog.image"}
+              {t("recipeDialog.image")}
             </Typography>
 
             {imageUrl ? (
@@ -195,18 +195,18 @@ export default function RecipeDialog({ open, onClose, recipe }: RecipeDialogProp
                   fontSize: 14,
                 }}
               >
-                {"recipeDialog.noImage"}
+                {t("recipeDialog.noImage")}
               </Box>
             )}
 
             <Stack direction="row" spacing={1}>
               <Button component="label" variant="outlined" size="small" disabled={busyImg}>
-                {imageUrl ? "recipeDialog.changeImage" : "recipeDialog.addImage"}
+                {imageUrl ? t("recipeDialog.changeImage") : t("recipeDialog.addImage")}
                 <input type="file" hidden accept="image/*" onChange={onPickFile} />
               </Button>
               {imageUrl && (
                 <Button onClick={onRemoveImage} size="small" color="inherit" disabled={busyImg}>
-                  {"recipeDialog.removeImage"}
+                  {t("recipeDialog.removeImage")}
                 </Button>
               )}
             </Stack>

@@ -42,6 +42,7 @@ const resources = {
       "recipeDetail.delete": "Ta bort",
       "recipeDetail.back": "Tillbaka",
       "recipeDetail.confirmDelete": "Ta bort receptet? Detta går inte att ångra.",
+      "recipeDetail.totalTime": "Total tid: {{minutes}} min",
 
       // Dialog (create/edit)
       "recipeDialog.title": "Titel",
@@ -54,7 +55,11 @@ const resources = {
       "recipeDialog.steps": "Steg",
       "recipeDialog.stepText": "Stegtext",
       "recipeDialog.addStep": "Lägg till steg",
-
+      "recipeDialog.addTitle": "Lägg till recept",
+      "recipeDialog.editTitle": "Redigera recept",
+      "recipeDialog.image": "Bild",
+      "recipeDialog.noImage": "Ingen bild vald",
+      
       // Common
       "common.cancel": "Avbryt",
       "common.save": "Spara",
@@ -77,7 +82,12 @@ const resources = {
       "settings.importDone": "Import klar.",
       "settings.importError": "Import misslyckades.",
       "settings.storageLine": "{{used}} av {{quota}} använt • {{recipes}} recept • {{images}} bilder (≈ {{imageBytes}})",
-  
+      "settings.language": "Språk",
+      "settings.theme": "Tema",
+      "settings.theme.light": "Ljust",
+      "settings.theme.dark": "Mörkt",
+      "settings.theme.system": "Följ systeminställning",
+      
       // Sync (Google Drive)
       "settings.sync.title": "Molnsynk (Google Drive)",
       "settings.sync.desc":

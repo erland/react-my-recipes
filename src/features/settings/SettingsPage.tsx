@@ -10,6 +10,11 @@ import {
   Alert,
   Switch,
   FormControlLabel,
+  FormControl,
+  InputLabel,
+  MenuItem,
+  Select,
+  SelectChangeEvent,
 } from "@mui/material";
 import { useTranslation } from "react-i18next";
 import { exportRecipesToJsonBlob, downloadBlob, importRecipesFromJsonFile } from "@/utils/backup";
@@ -22,7 +27,7 @@ import { exportZip, importZip } from "@/utils/zipBackup";
 import { useStorageStats, fmtBytes } from "@/hooks/useStorageStats";
 
 export default function SettingsPage() {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const [snack, setSnack] = React.useState<{
     open: boolean;
     severity: "success" | "error";
@@ -31,6 +36,26 @@ export default function SettingsPage() {
 
   const [autoSync, setAutoSync] = React.useState<boolean>(false);
   const [status, setStatus] = React.useState<string>("");
+
+  // Language & Theme state
+  const savedLang = ((localStorage.getItem("lang") || i18n.language || "sv") as string).startsWith("sv") ? "sv" : "en";
+  const [lang, setLang] = React.useState<"sv" | "en">(savedLang);
+  const [themeMode, setThemeMode] = React.useState<"light" | "dark" | "system">((localStorage.getItem("themeMode") as any) || "system");
+
+  const handleLangChange = (e: SelectChangeEvent) => {
+    const next = e.target.value as "sv" | "en";
+    setLang(next);
+    i18n.changeLanguage(next);
+    localStorage.setItem("lang", next);
+  };
+
+  const handleThemeChange = (e: SelectChangeEvent) => {
+    const next = e.target.value as "light" | "dark" | "system";
+    setThemeMode(next);
+    localStorage.setItem("themeMode", next);
+    // Optional: expose to CSS or a future theme provider
+    document.documentElement.setAttribute("data-theme-mode", next);
+  };
 
   const fileInputRef = React.useRef<HTMLInputElement>(null);
   const zipFileInputRef = React.useRef<HTMLInputElement>(null); // ⬅️ NEW
@@ -259,6 +284,40 @@ export default function SettingsPage() {
               onChange={handleImportZipSelected}
               style={{ display: "none" }}
             />
+          </Stack>
+        </Stack>
+      </Paper>
+
+      {/* LANGUAGE & THEME SECTION */}
+      <Paper sx={{ p: 2, mt: 2 }}>
+        <Stack spacing={2}>
+          <Typography variant="h6">{t("settings.language")} / {t("settings.theme")}</Typography>
+          <Stack direction={{ xs: "column", sm: "row" }} spacing={2}>
+            <FormControl sx={{ minWidth: 200 }}>
+              <InputLabel id="lang-select-label">{t("settings.language")}</InputLabel>
+              <Select
+                labelId="lang-select-label"
+                label={t("settings.language")}
+                value={lang}
+                onChange={handleLangChange}
+              >
+                <MenuItem value="sv">Svenska</MenuItem>
+                <MenuItem value="en">English</MenuItem>
+              </Select>
+            </FormControl>
+            <FormControl sx={{ minWidth: 220 }}>
+              <InputLabel id="theme-select-label">{t("settings.theme")}</InputLabel>
+              <Select
+                labelId="theme-select-label"
+                label={t("settings.theme")}
+                value={themeMode}
+                onChange={handleThemeChange}
+              >
+                <MenuItem value="light">{t("settings.theme.light")}</MenuItem>
+                <MenuItem value="dark">{t("settings.theme.dark")}</MenuItem>
+                <MenuItem value="system">{t("settings.theme.system")}</MenuItem>
+              </Select>
+            </FormControl>
           </Stack>
         </Stack>
       </Paper>
