@@ -25,6 +25,7 @@ import { db } from "@/db/schema";
 // ⬇️ NEW: ZIP backup + storage stats
 import { exportZip, importZip } from "@/utils/zipBackup";
 import { useStorageStats, fmtBytes } from "@/hooks/useStorageStats";
+import { useThemeMode } from "@/providers/AppThemeProvider";
 
 export default function SettingsPage() {
   const { t, i18n } = useTranslation();
@@ -40,7 +41,7 @@ export default function SettingsPage() {
   // Language & Theme state
   const savedLang = ((localStorage.getItem("lang") || i18n.language || "sv") as string).startsWith("sv") ? "sv" : "en";
   const [lang, setLang] = React.useState<"sv" | "en">(savedLang);
-  const [themeMode, setThemeMode] = React.useState<"light" | "dark" | "system">((localStorage.getItem("themeMode") as any) || "system");
+  const { mode, setMode } = useThemeMode();
 
   const handleLangChange = (e: SelectChangeEvent) => {
     const next = e.target.value as "sv" | "en";
@@ -51,10 +52,7 @@ export default function SettingsPage() {
 
   const handleThemeChange = (e: SelectChangeEvent) => {
     const next = e.target.value as "light" | "dark" | "system";
-    setThemeMode(next);
-    localStorage.setItem("themeMode", next);
-    // Optional: expose to CSS or a future theme provider
-    document.documentElement.setAttribute("data-theme-mode", next);
+    setMode(next);
   };
 
   const fileInputRef = React.useRef<HTMLInputElement>(null);
@@ -310,7 +308,7 @@ export default function SettingsPage() {
               <Select
                 labelId="theme-select-label"
                 label={t("settings.theme")}
-                value={themeMode}
+                value={mode}
                 onChange={handleThemeChange}
               >
                 <MenuItem value="light">{t("settings.theme.light")}</MenuItem>
