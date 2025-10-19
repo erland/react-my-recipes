@@ -1,17 +1,11 @@
 import React from "react";
 import {
-  Box,
   Stack,
   Typography,
   Paper,
-  IconButton,
-  Tooltip,
   Divider,
   List,
-  Menu,
-  MenuItem,
 } from "@mui/material";
-import { Add } from "@mui/icons-material";
 import { useTranslation } from "react-i18next";
 import { useRecipeSearch } from "@/hooks/useRecipeSearch";
 import { useNavigate } from "react-router-dom";
@@ -19,12 +13,12 @@ import RecipeDialog from "./RecipeDialog";
 import type { Recipe } from "@/types/recipe";
 import { useDebouncedValue } from "@/hooks/useDebouncedValue";
 import * as recipesService from "@/services/recipesService";
-import { importRecipeFromUrl } from "@/features/import/urlImport";
-import { importRecipeFromPaste } from "@/features/import/pasteParser";
 import RecipesToolbar from "./RecipesToolbar";
 import RecipeListItem from "./RecipeListItem";
 import ImportFromUrlDialog from "@/features/import/ImportFromUrlDialog";
 import ImportFromPasteDialog from "@/features/import/ImportFromPasteDialog";
+import useRecipeImports from "@/features/import/useRecipeImports";
+import AddRecipeMenu from "./AddRecipeMenu";
 
 export default function RecipesPage() {
   const { t } = useTranslation();
@@ -39,16 +33,10 @@ export default function RecipesPage() {
   const [dialogOpen, setDialogOpen] = React.useState(false);
   const [editingRecipe, setEditingRecipe] = React.useState<Recipe | null>(null);
 
-  // Add / Import menu
-  const [menuAnchor, setMenuAnchor] = React.useState<null | HTMLElement>(null);
-  const openMenu = (e: React.MouseEvent<HTMLElement>) => setMenuAnchor(e.currentTarget);
-  const closeMenu = () => setMenuAnchor(null);
-
-  // URL import dialog
-  const [urlOpen, setUrlOpen] = React.useState(false);
-
-  // Paste import dialog
-  const [pasteOpen, setPasteOpen] = React.useState(false);
+  const imports = useRecipeImports((rec) => {
+    setEditingRecipe(rec);
+    setDialogOpen(true);
+  });
 
   const handleAddManual = () => {
     setEditingRecipe(null);
@@ -65,32 +53,6 @@ export default function RecipesPage() {
       await recipesService.updateRecipe(existingId, data);
     } else {
       await recipesService.createRecipe(data);
-    }
-  }
-
-  async function handleSubmitUrl(url: string) {
-    if (!url.trim()) return;
-    try {
-      const rec = await importRecipeFromUrl(url.trim());
-      await recipesService.insertImportedRecipe(rec);
-      setUrlOpen(false);
-      setEditingRecipe(rec);
-      setDialogOpen(true);
-    } catch (e: any) {
-      alert(e?.message || String(t("recipes.importError")));
-    }
-  }
-
-  async function handleSubmitPaste(text: string) {
-    if (!text.trim()) return;
-    try {
-      const rec = importRecipeFromPaste(text.trim());
-      await recipesService.insertImportedRecipe(rec);
-      setPasteOpen(false);
-      setEditingRecipe(rec);
-      setDialogOpen(true);
-    } catch (e: any) {
-      alert(e?.message || String(t("recipes.importError")));
     }
   }
 
@@ -132,39 +94,11 @@ export default function RecipesPage() {
 
         <Divider sx={{ my: 2 }} />
 
-        <Box sx={{ textAlign: "center" }}>
-          <Tooltip title={t("recipes.addNew")}>
-            <IconButton color="primary" size="large" onClick={openMenu}>
-              <Add />
-            </IconButton>
-          </Tooltip>
-          <Menu anchorEl={menuAnchor} open={!!menuAnchor} onClose={closeMenu}>
-            <MenuItem
-              onClick={() => {
-                closeMenu();
-                handleAddManual();
-              }}
-            >
-              {t("recipes.createManual")}
-            </MenuItem>
-            <MenuItem
-              onClick={() => {
-                closeMenu();
-                setUrlOpen(true);
-              }}
-            >
-              {t("recipes.importFromUrl")}
-            </MenuItem>
-            <MenuItem
-              onClick={() => {
-                closeMenu();
-                setPasteOpen(true);
-              }}
-            >
-              {t("recipes.importFromPaste")}
-            </MenuItem>
-          </Menu>
-        </Box>
+        <AddRecipeMenu
+          onCreateManual={handleAddManual}
+          onImportUrl={imports.openUrl}
+          onImportPaste={imports.openPaste}
+        />
       </Paper>
 
       {/* Manual create/edit */}
@@ -177,16 +111,16 @@ export default function RecipesPage() {
 
       {/* URL import dialog */}
       <ImportFromUrlDialog
-        open={urlOpen}
-        onClose={() => setUrlOpen(false)}
-        onSubmit={handleSubmitUrl}
+        open={imports.urlOpen}
+        onClose={imports.closeUrl}
+        onSubmit={imports.submitUrl}
       />
 
       {/* Paste import dialog */}
       <ImportFromPasteDialog
-        open={pasteOpen}
-        onClose={() => setPasteOpen(false)}
-        onSubmit={handleSubmitPaste}
+        open={imports.pasteOpen}
+        onClose={imports.closePaste}
+        onSubmit={imports.submitPaste}
       />
     </Stack>
   );

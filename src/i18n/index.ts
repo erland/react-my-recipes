@@ -49,6 +49,7 @@ const resources = {
       "recipeDialog.description": "Beskrivning",
       "recipeDialog.totalTime": "Total tid (minuter)",
       "recipeDialog.ingredients": "Ingredienser",
+      "recipeDialog.ingredientName": "Ingrediens",
       "recipeDialog.addIngredient": "Lägg till ingrediens",
       "recipeDialog.name": "Namn",
       "recipeDialog.quantity": "Mängd",
