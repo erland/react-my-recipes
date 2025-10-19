@@ -4,6 +4,10 @@ export interface ImageAsset {
   driveId?: string;          // for Google Drive sync
   fileName?: string;
   updatedAt: number;
+  blob?: Blob;
+  mime?: string;
+  width?: number;
+  height?: number;
 }
 
 export interface IngredientRef {

@@ -22,6 +22,8 @@ import {
   DialogActions,
   Button,
   CircularProgress,
+  ListItemAvatar,   // ⬅️ NEW
+  Avatar,           // ⬅️ NEW
 } from "@mui/material";
 import { Add, Edit, Favorite, FavoriteBorder } from "@mui/icons-material";
 import { useTranslation } from "react-i18next";
@@ -33,6 +35,25 @@ import { useDebouncedValue } from "@/hooks/useDebouncedValue";
 import { db } from "@/db/schema";
 import { importRecipeFromUrl } from "@/features/import/urlImport";
 import { importRecipeFromPaste } from "@/features/import/pasteParser";
+import { useImageUrl } from "@/hooks/useImageUrl"; // ⬅️ NEW
+
+// ⬇️ Small helper to render a rounded thumbnail (falls back to 🍳)
+function RecipeThumb({ imageId }: { imageId?: string }) {
+  const url = useImageUrl(imageId);
+  return (
+    <ListItemAvatar>
+      <Avatar
+        variant="rounded"
+        src={url}
+        alt=""
+        imgProps={{ loading: "lazy" }}
+        sx={{ width: 48, height: 48 }}
+      >
+        🍳
+      </Avatar>
+    </ListItemAvatar>
+  );
+}
 
 export default function RecipesPage() {
   const { t } = useTranslation();
@@ -151,11 +172,15 @@ export default function RecipesPage() {
               <React.Fragment key={r.id}>
                 <ListItem divider disablePadding>
                   <ListItemButton component={Link} to={`/recipes/${r.id}`}>
+                    {/* ⬇️ NEW thumbnail */}
+                    <RecipeThumb imageId={r.imageIds?.[0]} />
+
                     <ListItemText
                       primary={r.title}
                       secondary={r.totalTimeMin ? `${r.totalTimeMin} min` : t("recipes.noTime")}
                     />
                   </ListItemButton>
+
                   <ListItemSecondaryAction>
                     <Tooltip
                       title={r.favorite ? t("recipes.unfavorite") : t("recipes.favorite")}

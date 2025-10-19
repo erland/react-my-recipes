@@ -17,7 +17,8 @@ import { ArrowBack, Delete, Edit } from "@mui/icons-material";
 import { useTranslation } from "react-i18next";
 import { useRecipeDetail } from "@/hooks/useRecipeDetail";
 import { db } from "@/db/schema";
-import RecipeDialog from "./RecipeDialog"; // 👈 import the dialog
+import RecipeDialog from "./RecipeDialog";
+import { useImageUrl } from "@/hooks/useImageUrl"; // keep this
 
 export default function RecipeDetail() {
   const { id } = useParams();
@@ -25,8 +26,12 @@ export default function RecipeDetail() {
   const navigate = useNavigate();
   const recipe = useRecipeDetail(id);
 
-  // 👇 local state for dialog
+  // Dialog state
   const [dialogOpen, setDialogOpen] = useState(false);
+
+  // ✅ Call hooks before any early return
+  const heroId = recipe?.imageIds?.[0];
+  const heroUrl = useImageUrl(heroId);
 
   const handleDelete = async () => {
     if (!id) return;
@@ -36,13 +41,8 @@ export default function RecipeDetail() {
     }
   };
 
-  const handleEdit = () => {
-    setDialogOpen(true);
-  };
-
-  const handleDialogClose = () => {
-    setDialogOpen(false);
-  };
+  const handleEdit = () => setDialogOpen(true);
+  const handleDialogClose = () => setDialogOpen(false);
 
   if (!recipe)
     return (
@@ -72,7 +72,37 @@ export default function RecipeDetail() {
           </Box>
         </Stack>
 
-        <Typography variant="body1" sx={{ mt: 1 }}>
+        {/* Hero image */}
+        {heroUrl && (
+          <Box
+            sx={{
+              width: "100%",
+              height: { xs: 240, sm: 300, md: 360 }, // responsive hero height
+              borderRadius: 1,
+              mt: 2,
+              overflow: "hidden",
+              bgcolor: "action.hover",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+            }}
+          >
+            <Box
+              component="img"
+              src={heroUrl}
+              alt={recipe.title}
+              sx={{
+                width: "100%",
+                height: "100%",
+                objectFit: "contain",     // 👈 show whole image
+                display: "block",
+              }}
+              loading="lazy"
+            />
+          </Box>
+        )}
+
+        <Typography variant="body1" sx={{ mt: 2 }}>
           {recipe.description || t("recipeDetail.noDescription")}
         </Typography>
 
@@ -85,7 +115,9 @@ export default function RecipeDetail() {
               {recipe.ingredients.map((ing) => (
                 <ListItem key={ing.id}>
                   <ListItemText
-                    primary={`${ing.name}${ing.quantity ? ` – ${ing.quantity}` : ""}`}
+                    primary={`${(ing.name ?? "").trim()}${
+                      ing.quantity ? ` – ${ing.quantity}` : ""
+                    }`}
                     secondary={ing.note}
                   />
                 </ListItem>
@@ -133,12 +165,7 @@ export default function RecipeDetail() {
         </Button>
       </Paper>
 
-      {/* 👇 Attach dialog at bottom */}
-      <RecipeDialog
-        open={dialogOpen}
-        onClose={handleDialogClose}
-        recipe={recipe}
-      />
+      <RecipeDialog open={dialogOpen} onClose={handleDialogClose} recipe={recipe} />
     </>
   );
 }

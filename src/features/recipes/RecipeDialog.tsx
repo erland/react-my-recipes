@@ -21,6 +21,10 @@ import { db } from "@/db/schema";
 import { v4 as uuidv4 } from "uuid";
 import type { Recipe, IngredientRef, RecipeStep } from "@/types/recipe";
 
+// ⬇️ New imports for image pipeline
+import { saveImageFile } from "@/utils/imageUtils";
+import { useImageUrl } from "@/hooks/useImageUrl";
+
 interface RecipeDialogProps {
   open: boolean;
   onClose: () => void;
@@ -39,6 +43,11 @@ export default function RecipeDialog({ open, onClose, recipe }: RecipeDialogProp
   const [ingredients, setIngredients] = useState<IngredientRef[]>([]);
   const [steps, setSteps] = useState<RecipeStep[]>([]);
 
+  // --- Image state (hero image only for MVP) ---
+  const [imageId, setImageId] = useState<string | undefined>(undefined);
+  const [busyImg, setBusyImg] = useState(false);
+  const imageUrl = useImageUrl(imageId);
+
   // Load or reset when recipe changes
   useEffect(() => {
     if (recipe) {
@@ -47,12 +56,14 @@ export default function RecipeDialog({ open, onClose, recipe }: RecipeDialogProp
       setTotalTimeMin(recipe.totalTimeMin ?? "");
       setIngredients(recipe.ingredients ?? []);
       setSteps(recipe.steps ?? []);
+      setImageId(recipe.imageIds?.[0]); // ⬅️ load hero image
     } else {
       setTitle("");
       setDescription("");
       setTotalTimeMin("");
       setIngredients([]);
       setSteps([]);
+      setImageId(undefined);
     }
   }, [recipe]);
 
@@ -75,6 +86,27 @@ export default function RecipeDialog({ open, onClose, recipe }: RecipeDialogProp
   const deleteStep = (id: string) =>
     setSteps((prev) => prev.filter((s) => s.id !== id).map((s, idx) => ({ ...s, order: idx + 1 })));
 
+  // --- Image handlers ---
+  async function onPickFile(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setBusyImg(true);
+    try {
+      const asset = await saveImageFile(file); // compress + store (webp/jpeg)
+      setImageId(asset.id);
+    } catch (err: any) {
+      // Keep literal string to avoid missing i18n keys for now
+      alert(err?.message || "imagePicker.error");
+    } finally {
+      setBusyImg(false);
+      e.target.value = "";
+    }
+  }
+
+  function onRemoveImage() {
+    setImageId(undefined);
+  }
+
   // --- Save handler ---
   const handleSave = async () => {
     if (!title.trim()) return;
@@ -86,6 +118,7 @@ export default function RecipeDialog({ open, onClose, recipe }: RecipeDialogProp
       ingredients,
       steps,
       updatedAt: Date.now(),
+      imageIds: imageId ? [imageId] : [], // ⬅️ store hero image id
     };
 
     if (recipe?.id) {
@@ -115,6 +148,70 @@ export default function RecipeDialog({ open, onClose, recipe }: RecipeDialogProp
 
       <DialogContent>
         <Stack spacing={2} sx={{ mt: 1 }}>
+          {/* --- Image (hero) --- */}
+          <Box sx={{ mb: 1 }}>
+            <Typography variant="subtitle2" sx={{ mb: 1 }}>
+              {"recipeDialog.image"}
+            </Typography>
+
+            {imageUrl ? (
+              <Box
+                sx={{
+                  width: "100%",
+                  height: 260,               // fixed preview height
+                  borderRadius: 1,
+                  mb: 1,
+                  overflow: "hidden",
+                  bgcolor: "action.hover",   // subtle letterbox background
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                }}
+              >
+                <Box
+                  component="img"
+                  src={imageUrl}
+                  alt={title || "image"}
+                  sx={{
+                    width: "100%",
+                    height: "100%",
+                    objectFit: "contain",     // 👈 show whole image
+                    display: "block",
+                  }}
+                  loading="lazy"
+                />
+              </Box>
+            ) : (
+              <Box
+                sx={{
+                  height: 120,
+                  borderRadius: 1,
+                  bgcolor: "action.hover",
+                  color: "text.secondary",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  mb: 1,
+                  fontSize: 14,
+                }}
+              >
+                {"recipeDialog.noImage"}
+              </Box>
+            )}
+
+            <Stack direction="row" spacing={1}>
+              <Button component="label" variant="outlined" size="small" disabled={busyImg}>
+                {imageUrl ? "recipeDialog.changeImage" : "recipeDialog.addImage"}
+                <input type="file" hidden accept="image/*" onChange={onPickFile} />
+              </Button>
+              {imageUrl && (
+                <Button onClick={onRemoveImage} size="small" color="inherit" disabled={busyImg}>
+                  {"recipeDialog.removeImage"}
+                </Button>
+              )}
+            </Stack>
+          </Box>
+
           {/* --- Basic fields --- */}
           <TextField
             label={t("recipeDialog.title")}
