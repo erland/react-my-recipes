@@ -10,13 +10,13 @@ const resources = {
 
       // Recipes list
       "recipes.title": "Recept",
-      "recipes.searchEverything": "Sök i allt…",
-      "recipes.maxTotalTime": "Maximal total tid: {{minutes}} min",
+      "recipes.search": "Sök i allt…",
+      "recipes.maxTime": "Maximal total tid: {{minutes}} min",
       "recipes.favorite": "Favoritmarkera",
       "recipes.unfavorite": "Ta bort favorit",
       "recipes.loading": "Laddar recept…",
       "recipes.noResults": "Inga recept hittades.",
-      "recipes.noTime": "Ingen tid angiven",
+      "recipes.noLimit": "Ingen tid angiven",
       "recipes.addNew": "Lägg till nytt recept",
       "recipes.edit": "Redigera recept",
 

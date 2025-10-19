@@ -21,6 +21,7 @@ export type RecipeListItemProps = {
 export default function RecipeListItem({ recipe, onClick, onEdit, onToggleFavorite }: RecipeListItemProps) {
   const fav = !!(recipe as any).favorite;
   const id = (recipe as any).id as string;
+  const primaryImageId = (recipe as any).imageId ?? (recipe as any).imageIds?.[0] ?? null;
 
   return (
     <ListItem
@@ -41,7 +42,7 @@ export default function RecipeListItem({ recipe, onClick, onEdit, onToggleFavori
     >
       <ListItemButton onClick={() => onClick?.(id)}>
         <ListItemAvatar>
-          <RecipeThumb title={recipe.title || ""} imageId={(recipe as any).imageId} />
+          <RecipeThumb title={recipe.title || ""} imageId={primaryImageId} />
         </ListItemAvatar>
         <ListItemText
           primary={recipe.title}

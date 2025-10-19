@@ -32,7 +32,9 @@ export default function RecipesToolbar({
 
       <Stack sx={{ minWidth: 220 }}>
         <Typography variant="caption">
-          {t("recipes.maxTime") || "Max time (min)"}
+          {sliderVal === 0
+            ? (t("recipes.noLimit") || "No limit")
+            : t("recipes.maxTime", { minutes: sliderVal })}
         </Typography>
         <Slider
           value={sliderVal}

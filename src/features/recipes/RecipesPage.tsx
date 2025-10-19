@@ -4,19 +4,12 @@ import {
   Stack,
   Typography,
   Paper,
-  TextField,
   IconButton,
   Tooltip,
   Divider,
   List,
   Menu,
   MenuItem,
-  Dialog,
-  DialogTitle,
-  DialogContent,
-  DialogActions,
-  Button,
-  CircularProgress,
 } from "@mui/material";
 import { Add } from "@mui/icons-material";
 import { useTranslation } from "react-i18next";
@@ -30,6 +23,8 @@ import { importRecipeFromUrl } from "@/features/import/urlImport";
 import { importRecipeFromPaste } from "@/features/import/pasteParser";
 import RecipesToolbar from "./RecipesToolbar";
 import RecipeListItem from "./RecipeListItem";
+import ImportFromUrlDialog from "@/features/import/ImportFromUrlDialog";
+import ImportFromPasteDialog from "@/features/import/ImportFromPasteDialog";
 
 export default function RecipesPage() {
   const { t } = useTranslation();
@@ -51,13 +46,9 @@ export default function RecipesPage() {
 
   // URL import dialog
   const [urlOpen, setUrlOpen] = React.useState(false);
-  const [importUrl, setImportUrl] = React.useState("");
-  const [busyUrl, setBusyUrl] = React.useState(false);
 
   // Paste import dialog
   const [pasteOpen, setPasteOpen] = React.useState(false);
-  const [pasteText, setPasteText] = React.useState("");
-  const [busyPaste, setBusyPaste] = React.useState(false);
 
   const handleAddManual = () => {
     setEditingRecipe(null);
@@ -69,38 +60,29 @@ export default function RecipesPage() {
     setDialogOpen(true);
   };
 
-  async function runUrlImport() {
-    if (!importUrl.trim()) return;
-    setBusyUrl(true);
+  async function handleSubmitUrl(url: string) {
+    if (!url.trim()) return;
     try {
-      const rec = await importRecipeFromUrl(importUrl.trim());
+      const rec = await importRecipeFromUrl(url.trim());
       await db.recipes.add(rec);
       setUrlOpen(false);
-      setImportUrl("");
-      // Let user tweak immediately
       setEditingRecipe(rec);
       setDialogOpen(true);
     } catch (e: any) {
       alert(e?.message || String(t("recipes.importError")));
-    } finally {
-      setBusyUrl(false);
     }
   }
 
-  async function runPasteImport() {
-    if (!pasteText.trim()) return;
-    setBusyPaste(true);
+  async function handleSubmitPaste(text: string) {
+    if (!text.trim()) return;
     try {
-      const rec = importRecipeFromPaste(pasteText.trim());
+      const rec = importRecipeFromPaste(text.trim());
       await db.recipes.add(rec);
       setPasteOpen(false);
-      setPasteText("");
       setEditingRecipe(rec);
       setDialogOpen(true);
     } catch (e: any) {
       alert(e?.message || String(t("recipes.importError")));
-    } finally {
-      setBusyPaste(false);
     }
   }
 
@@ -181,52 +163,18 @@ export default function RecipesPage() {
       <RecipeDialog open={dialogOpen} onClose={() => setDialogOpen(false)} recipe={editingRecipe} />
 
       {/* URL import dialog */}
-      <Dialog open={urlOpen} onClose={() => !busyUrl && setUrlOpen(false)} fullWidth>
-        <DialogTitle>{t("recipes.importFromUrl")}</DialogTitle>
-        <DialogContent>
-          <TextField
-            autoFocus
-            fullWidth
-            label={t("recipes.importUrlLabel")}
-            value={importUrl}
-            onChange={(e) => setImportUrl(e.target.value)}
-            placeholder="https://…"
-          />
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={() => setUrlOpen(false)} disabled={busyUrl}>
-            {t("common.cancel")}
-          </Button>
-          <Button onClick={runUrlImport} disabled={busyUrl} variant="contained">
-            {busyUrl ? <CircularProgress size={20} /> : t("recipes.import")}
-          </Button>
-        </DialogActions>
-      </Dialog>
+      <ImportFromUrlDialog
+        open={urlOpen}
+        onClose={() => setUrlOpen(false)}
+        onSubmit={handleSubmitUrl}
+      />
 
       {/* Paste import dialog */}
-      <Dialog open={pasteOpen} onClose={() => !busyPaste && setPasteOpen(false)} fullWidth>
-        <DialogTitle>{t("recipes.importFromPaste")}</DialogTitle>
-        <DialogContent>
-          <TextField
-            autoFocus
-            fullWidth
-            multiline
-            minRows={6}
-            label={t("recipes.pasteLabel")}
-            value={pasteText}
-            onChange={(e) => setPasteText(e.target.value)}
-            placeholder={`${t("recipes.pasteExampleTitle")}\n${t("recipes.pasteExampleIng")}\n- Mjölk – 6 dl\n- Ägg – 3 st\n${t("recipes.pasteExampleSteps")}\n1. Vispa ihop …`}
-          />
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={() => setPasteOpen(false)} disabled={busyPaste}>
-            {t("common.cancel")}
-          </Button>
-          <Button onClick={runPasteImport} disabled={busyPaste} variant="contained">
-            {busyPaste ? <CircularProgress size={20} /> : t("recipes.import")}
-          </Button>
-        </DialogActions>
-      </Dialog>
+      <ImportFromPasteDialog
+        open={pasteOpen}
+        onClose={() => setPasteOpen(false)}
+        onSubmit={handleSubmitPaste}
+      />
     </Stack>
   );
 }
