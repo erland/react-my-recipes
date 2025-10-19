@@ -17,6 +17,10 @@ import { syncNow } from "@/sync/syncEngine";
 import { ensureDriveLayout, signOutDrive } from "@/sync/googleDriveClient";
 import { db } from "@/db/schema";
 
+// ⬇️ NEW: ZIP backup + storage stats
+import { exportZip, importZip } from "@/utils/zipBackup";
+import { useStorageStats, fmtBytes } from "@/hooks/useStorageStats";
+
 export default function SettingsPage() {
   const { t } = useTranslation();
   const [snack, setSnack] = React.useState<{
@@ -24,10 +28,15 @@ export default function SettingsPage() {
     severity: "success" | "error";
     message: string;
   }>({ open: false, severity: "success", message: "" });
+
   const [autoSync, setAutoSync] = React.useState<boolean>(false);
   const [status, setStatus] = React.useState<string>("");
 
   const fileInputRef = React.useRef<HTMLInputElement>(null);
+  const zipFileInputRef = React.useRef<HTMLInputElement>(null); // ⬅️ NEW
+
+  // ⬇️ NEW: live storage stats (recipes/images + approximate quota usage)
+  const stats = useStorageStats();
 
   React.useEffect(() => {
     (async () => {
@@ -71,6 +80,41 @@ export default function SettingsPage() {
     } catch {
       setSnack({ open: true, severity: "error", message: String(t("settings.import.error")) });
     } finally {
+      e.target.value = "";
+    }
+  }
+
+  // ⬇️ NEW: ZIP export/import handlers
+  const [busyZipExport, setBusyZipExport] = React.useState(false);
+  const [busyZipImport, setBusyZipImport] = React.useState(false);
+
+  async function handleExportZip() {
+    try {
+      setBusyZipExport(true);
+      await exportZip();
+      setSnack({ open: true, severity: "success", message: "ZIP export done." });
+    } catch (e: any) {
+      setSnack({ open: true, severity: "error", message: e?.message || "ZIP export failed." });
+    } finally {
+      setBusyZipExport(false);
+    }
+  }
+
+  function handleImportZipClick() {
+    zipFileInputRef.current?.click();
+  }
+
+  async function handleImportZipSelected(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    try {
+      setBusyZipImport(true);
+      await importZip(file);
+      setSnack({ open: true, severity: "success", message: "ZIP import done." });
+    } catch (e: any) {
+      setSnack({ open: true, severity: "error", message: e?.message || "ZIP import failed." });
+    } finally {
+      setBusyZipImport(false);
       e.target.value = "";
     }
   }
@@ -174,7 +218,16 @@ export default function SettingsPage() {
         <Stack spacing={2}>
           <Typography variant="h6">{t("settings.exportImport.title")}</Typography>
           <Typography color="text.secondary">{t("settings.exportImport.desc")}</Typography>
+
+          {/* ⬇️ NEW: storage usage line */}
+          <Typography variant="body2" color="text.secondary">
+            {/* Prefer i18n key if you add it; otherwise this neutral text is fine */}
+            {`${fmtBytes(stats.usedBytes)} of ${fmtBytes(stats.quotaBytes)} used • ${stats.recipeCount} recipes • ${stats.imageCount} images (≈ ${fmtBytes(stats.imageBytes)})`}
+          </Typography>
+
           <Divider />
+
+          {/* Existing JSON export/import */}
           <Stack direction="row" spacing={2}>
             <Button variant="contained" onClick={handleExport}>
               {t("settings.export.json")}
@@ -187,6 +240,23 @@ export default function SettingsPage() {
               type="file"
               accept="application/json,json"
               onChange={handleImportSelected}
+              style={{ display: "none" }}
+            />
+          </Stack>
+
+          {/* ⬇️ NEW: ZIP export/import for recipes + images */}
+          <Stack direction="row" spacing={2}>
+            <Button variant="outlined" onClick={handleExportZip} disabled={busyZipExport}>
+              {busyZipExport ? "Exporting ZIP…" : "Export (ZIP)"}
+            </Button>
+            <Button variant="contained" onClick={handleImportZipClick} disabled={busyZipImport}>
+              {busyZipImport ? "Importing ZIP…" : "Import (ZIP)"}
+            </Button>
+            <input
+              ref={zipFileInputRef}
+              type="file"
+              accept=".zip,application/zip"
+              onChange={handleImportZipSelected}
               style={{ display: "none" }}
             />
           </Stack>

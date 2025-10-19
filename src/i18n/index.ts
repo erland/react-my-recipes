@@ -70,7 +70,14 @@ const resources = {
       "settings.export.error": "Export misslyckades.",
       "settings.import.success": "Import klar – totalt: {{total}}, tillagda: {{added}}, uppdaterade: {{updated}}.",
       "settings.import.error": "Import misslyckades. Kontrollera filformatet.",
-
+      "settings.exportZip": "Exportera (ZIP)",
+      "settings.exporting": "Exporterar…",
+      "settings.importZip": "Importera (ZIP)",
+      "settings.importing": "Importerar…",
+      "settings.importDone": "Import klar.",
+      "settings.importError": "Import misslyckades.",
+      "settings.storageLine": "{{used}} av {{quota}} använt • {{recipes}} recept • {{images}} bilder (≈ {{imageBytes}})",
+  
       // Sync (Google Drive)
       "settings.sync.title": "Molnsynk (Google Drive)",
       "settings.sync.desc":
