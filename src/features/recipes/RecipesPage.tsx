@@ -2,18 +2,13 @@ import React from "react";
 import {
   Box,
   Stack,
-  TextField,
   Typography,
-  ListItemButton,
-  Slider,
   Paper,
+  TextField,
   IconButton,
   Tooltip,
   Divider,
   List,
-  ListItem,
-  ListItemText,
-  ListItemSecondaryAction,
   Menu,
   MenuItem,
   Dialog,
@@ -22,46 +17,29 @@ import {
   DialogActions,
   Button,
   CircularProgress,
-  ListItemAvatar,   // ⬅️ NEW
-  Avatar,           // ⬅️ NEW
 } from "@mui/material";
-import { Add, Edit, Favorite, FavoriteBorder } from "@mui/icons-material";
+import { Add } from "@mui/icons-material";
 import { useTranslation } from "react-i18next";
 import { useRecipeSearch } from "@/hooks/useRecipeSearch";
-import { Link } from "react-router-dom";
+import { useNavigate } from "react-router-dom";
 import RecipeDialog from "./RecipeDialog";
 import type { Recipe } from "@/types/recipe";
 import { useDebouncedValue } from "@/hooks/useDebouncedValue";
 import { db } from "@/db/schema";
 import { importRecipeFromUrl } from "@/features/import/urlImport";
 import { importRecipeFromPaste } from "@/features/import/pasteParser";
-import { useImageUrl } from "@/hooks/useImageUrl"; // ⬅️ NEW
-
-// ⬇️ Small helper to render a rounded thumbnail (falls back to 🍳)
-function RecipeThumb({ imageId }: { imageId?: string }) {
-  const url = useImageUrl(imageId);
-  return (
-    <ListItemAvatar>
-      <Avatar
-        variant="rounded"
-        src={url}
-        alt=""
-        imgProps={{ loading: "lazy" }}
-        sx={{ width: 48, height: 48 }}
-      >
-        🍳
-      </Avatar>
-    </ListItemAvatar>
-  );
-}
+import RecipesToolbar from "./RecipesToolbar";
+import RecipeListItem from "./RecipeListItem";
 
 export default function RecipesPage() {
   const { t } = useTranslation();
+  const navigate = useNavigate();
   const [search, setSearch] = React.useState("");
-  const [maxTime, setMaxTime] = React.useState(180);
+  const [maxTimeMin, setMaxTimeMin] = React.useState<number | null>(null);
 
   const debouncedSearch = useDebouncedValue(search, 250);
-  const recipes = useRecipeSearch({ query: debouncedSearch, maxTime });
+  const effectiveMaxTime = maxTimeMin ?? 180;
+  const recipes = useRecipeSearch({ query: debouncedSearch, maxTime: effectiveMaxTime });
 
   const [dialogOpen, setDialogOpen] = React.useState(false);
   const [editingRecipe, setEditingRecipe] = React.useState<Recipe | null>(null);
@@ -131,30 +109,12 @@ export default function RecipesPage() {
       <Typography variant="h5">{t("recipes.title")}</Typography>
 
       <Paper sx={{ p: 2 }}>
-        <Stack spacing={2}>
-          <TextField
-            fullWidth
-            label={t("recipes.searchEverything")}
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-          />
-
-          <Box>
-            <Typography variant="body2" gutterBottom>
-              {t("recipes.maxTotalTime", {
-                minutes: maxTime === 180 ? "180+" : maxTime,
-              })}
-            </Typography>
-            <Slider
-              value={maxTime}
-              onChange={(_, v) => setMaxTime(v as number)}
-              valueLabelDisplay="auto"
-              step={5}
-              min={0}
-              max={180}
-            />
-          </Box>
-        </Stack>
+        <RecipesToolbar
+          query={search}
+          onQueryChange={setSearch}
+          maxTimeMin={maxTimeMin}
+          onMaxTimeMinChange={setMaxTimeMin}
+        />
       </Paper>
 
       <Paper sx={{ p: 2 }}>
@@ -169,48 +129,13 @@ export default function RecipesPage() {
         ) : (
           <List>
             {recipes.map((r) => (
-              <React.Fragment key={r.id}>
-                <ListItem divider disablePadding>
-                  <ListItemButton component={Link} to={`/recipes/${r.id}`}>
-                    {/* ⬇️ NEW thumbnail */}
-                    <RecipeThumb imageId={r.imageIds?.[0]} />
-
-                    <ListItemText
-                      primary={r.title}
-                      secondary={r.totalTimeMin ? `${r.totalTimeMin} min` : t("recipes.noTime")}
-                    />
-                  </ListItemButton>
-
-                  <ListItemSecondaryAction>
-                    <Tooltip
-                      title={r.favorite ? t("recipes.unfavorite") : t("recipes.favorite")}
-                    >
-                      <IconButton
-                        size="small"
-                        onClick={async (e) => {
-                          e.preventDefault();
-                          await db.recipes.update(r.id, { favorite: !r.favorite });
-                        }}
-                        aria-label={r.favorite ? t("recipes.unfavorite") : t("recipes.favorite")}
-                      >
-                        {r.favorite ? <Favorite /> : <FavoriteBorder />}
-                      </IconButton>
-                    </Tooltip>
-                    <Tooltip title={t("recipes.edit")}>
-                      <IconButton
-                        color="primary"
-                        size="small"
-                        onClick={(e) => {
-                          e.preventDefault();
-                          handleEdit(r);
-                        }}
-                      >
-                        <Edit />
-                      </IconButton>
-                    </Tooltip>
-                  </ListItemSecondaryAction>
-                </ListItem>
-              </React.Fragment>
+              <RecipeListItem
+                key={r.id}
+                recipe={r as Recipe}
+                onClick={(id) => navigate(`/recipes/${id}`)}
+                onEdit={(id) => { const rec = (recipes as Recipe[]).find(x => x.id === id); if (rec) { setEditingRecipe(rec); setDialogOpen(true); } }}
+                onToggleFavorite={async (id, next) => { await db.recipes.update(id, { favorite: next }); }}
+              />
             ))}
           </List>
         )}
