@@ -21,7 +21,7 @@ export type RecipeListItemProps = {
 export default function RecipeListItem({ recipe, onClick, onEdit, onToggleFavorite }: RecipeListItemProps) {
   const fav = !!(recipe as any).favorite;
   const id = (recipe as any).id as string;
-  const primaryImageId = (recipe as any).imageId ?? (recipe as any).imageIds?.[0] ?? null;
+  const primaryImageId = (recipe as any).imageIds?.[0] ?? null;
 
   return (
     <ListItem

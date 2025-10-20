@@ -121,7 +121,7 @@ export interface Recipe {
   id: ID;
   title: string;
   description?: string;
-  images: ID[];
+  imageIds: ID[];
   tags: string[];
   categories: string[];
   allergens: string[];
@@ -134,8 +134,8 @@ export interface Recipe {
   sourceUrl?: string;
   sourceName?: string;
   favorite?: boolean;
-  createdAt: string;
-  updatedAt: string;
+  createdAt: number;   // epoch ms
+  updatedAt: number;   // epoch ms
   lastCookedAt?: string;
   notes?: string;
 }

@@ -7,7 +7,7 @@ import RecipeDetail from "./features/recipes/RecipeDetail";
 import SettingsPage from "./features/settings/SettingsPage";
 import "./i18n";
 import { ensurePersistentStorage, logStorageEstimate } from "@/utils/persistence";
-import { useAutoSyncToast } from "@/components/toasts/autoSyncToast";
+import { useAutoSyncToast } from "@/features/sync/AutoSyncToast";
 import { AppThemeProvider } from "@/providers/AppThemeProvider";
 
 // ✅ import Dexie instance early
@@ -52,8 +52,8 @@ function Root() {
   const { triggerAutoSync, Toast } = useAutoSyncToast();
 
   React.useEffect(() => {
-    triggerAutoSync("startup");
-    const handler = () => triggerAutoSync("online");
+    triggerAutoSync();
+    const handler = () => triggerAutoSync();
     window.addEventListener("online", handler);
     return () => window.removeEventListener("online", handler);
   }, [triggerAutoSync]);

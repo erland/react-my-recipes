@@ -3,41 +3,25 @@ import { Snackbar, Alert } from "@mui/material";
 import { syncNow } from "@/sync/syncEngine";
 import { db } from "@/db/schema";
 
-type Sev = "info" | "success" | "error";
-
+/** Toast + trigger for settings “Auto-sync” */
 export function useAutoSyncToast() {
+  const inFlightRef = React.useRef(false);
+  const lastAtRef = React.useRef<number | null>(null);
   const [snack, setSnack] = React.useState<{
     open: boolean;
     msg: string;
-    severity: Sev;
-  }>({
-    open: false,
-    msg: "",
-    severity: "info",
-  });
+    severity: "success" | "error";
+  }>({ open: false, msg: "", severity: "success" });
 
-  // Prevent double-runs / loops
-  const inFlightRef = React.useRef(false);
-  const lastAtRef = React.useRef(0);
-  const THROTTLE_MS = 5000;
+  const triggerAutoSync = React.useCallback(async () => {
+    if (inFlightRef.current) return;
+    // Throttle: at most once every 30s
+    if (lastAtRef.current && Date.now() - lastAtRef.current < 30_000) return;
+    inFlightRef.current = true;
 
-  const triggerAutoSync = React.useCallback(async (_reason: string) => {
     try {
-      const st = await db.syncState.get("google-drive");
-      const connected = !!(st?.recipesFileId || st?.driveFolderId);
-
-      // Only run if auto-sync is enabled AND user has connected before
-      if (!st?.autoSync || !connected) return;
-
-      const now = Date.now();
-      if (inFlightRef.current || now - lastAtRef.current < THROTTLE_MS) return;
-
-      inFlightRef.current = true;
-      setSnack({ open: true, msg: "Synkar…", severity: "info" });
-
       await syncNow();
-
-      // ✅ MERGE-SAFE WRITE (preserves token + settings)
+      // ✅ MERGE-SAFE WRITE (preserves token)
       const prev = await db.syncState.get("google-drive");
       await db.syncState.put(
         {
@@ -48,7 +32,6 @@ export function useAutoSyncToast() {
         },
         "google-drive"
       );
-
       setSnack({ open: true, msg: "Synk klar ✓", severity: "success" });
     } catch (err: any) {
       // ✅ MERGE-SAFE WRITE (preserves token)
