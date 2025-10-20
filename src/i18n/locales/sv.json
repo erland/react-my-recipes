@@ -102,6 +102,7 @@
     },
     "sync": {
       "title": "Molnsynk (Google Drive)",
+      "auto": "Automatisk synk",
       "connectedSnack": "Ansluten till Google Drive.",
       "syncedSnack": "Synk klar: {{uploaded}} upp, {{downloaded}} ner, {{merged}} sammanslagna.",
       "connected": "Ansluten",
