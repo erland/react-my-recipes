@@ -239,8 +239,8 @@ export default function SettingsPage() {
       {/* EXPORT/IMPORT SECTION */}
       <Paper sx={{ p: 2, mt: 2 }}>
         <Stack spacing={2}>
-          <Typography variant="h6">{t("settings.exportImport.title")}</Typography>
-          <Typography color="text.secondary">{t("settings.exportImport.desc")}</Typography>
+          <Typography variant="h6">{t("settings.backup.title")}</Typography>
+          <Typography color="text.secondary">{t("settings.backup.desc")}</Typography>
 
           {/* ⬇️ NEW: storage usage line */}
           <Typography variant="body2" color="text.secondary">
@@ -289,7 +289,7 @@ export default function SettingsPage() {
       {/* LANGUAGE & THEME SECTION */}
       <Paper sx={{ p: 2, mt: 2 }}>
         <Stack spacing={2}>
-          <Typography variant="h6">{t("settings.language")} / {t("settings.theme")}</Typography>
+          <Typography variant="h6">{t("settings.language")} / {t("settings.theme.label")}</Typography>
           <Stack direction={{ xs: "column", sm: "row" }} spacing={2}>
             <FormControl sx={{ minWidth: 200 }}>
               <InputLabel id="lang-select-label">{t("settings.language")}</InputLabel>

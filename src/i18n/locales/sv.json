@@ -74,6 +74,7 @@
     },
     "backup": {
       "title": "Säkerhetskopiering",
+      "desc": "Säkerhetskopiera recept och bilder till JSON (enbart recept) eller ZIP (recept + bilder)",
       "chooseFile": "Välj fil…",
       "exportJson": "Exportera (JSON)",
       "exportZip": "Exportera (ZIP)",

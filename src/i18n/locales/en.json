@@ -74,6 +74,7 @@
     },
     "backup": {
       "title": "Backup",
+      "desc": "Backup recipes and images to JSON (only recipes) or ZIP (recipes + images)",
       "chooseFile": "Choose file…",
       "exportJson": "Export (JSON)",
       "exportZip": "Export (ZIP)",
