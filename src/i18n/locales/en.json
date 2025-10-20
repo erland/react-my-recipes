@@ -1,2 +1,121 @@
-{ 
+{
+  "app": {
+    "title": "My Recipes"
+  },
+  "common": {
+    "cancel": "Cancel",
+    "save": "Save"
+  },
+  "nav": {
+    "recipes": "Recipes",
+    "settings": "Settings"
+  },
+  "recipeDetail": {
+    "back": "Back",
+    "confirmDelete": "Delete this recipe? This cannot be undone.",
+    "delete": "Delete",
+    "edit": "Edit",
+    "ingredients": "Ingredients",
+    "minutes": "min",
+    "noDescription": "No description available.",
+    "notFound": "The recipe could not be found.",
+    "steps": "Instructions",
+    "totalTime": "Total time: {{minutes}} min"
+  },
+  "recipeDialog": {
+    "addImage": "Add image",
+    "addIngredient": "Add ingredient",
+    "addStep": "Add step",
+    "addTitle": "Add recipe",
+    "changeImage": "Change image",
+    "description": "Description",
+    "editTitle": "Edit recipe",
+    "image": "Image",
+    "ingredients": "Ingredients",
+    "steps": "Instructions",
+    "title": "Title",
+    "totalTime": "Total time (minutes)",
+    "ingredientName": "Ingredient",
+    "quantity": "Amount",
+    "stepText": "Step",
+    "noImage": "No image",
+    "removeImage": "Remove image"
+  },
+  "recipes": {
+    "add": "Add new recipe",
+    "edit": "Edit recipe",
+    "favorite": "Mark as favorite",
+    "loading": "Loading recipes…",
+    "maxTime": "Maximum total time: {{minutes}} min",
+    "noLimit": "No time specified",
+    "noResults": "No recipes found.",
+    "search": "Search all…",
+    "title": "Recipes",
+    "createManual": "Create manually",
+    "importFromUrl": "Import from link…",
+    "importFromPaste": "Paste text…",
+    "importUrlLabel": "Paste recipe link",
+    "pasteLabel": "Paste recipe text",
+    "import": "Import",
+    "importError": "Import failed.",
+    "pasteExampleTitle": "Title",
+    "pasteExampleIng": "Ingredients:",
+    "pasteExampleSteps": "Instructions:",
+    "unfavorite": "Remove favorite"
+  },
+  "settings": {
+    "title": "Settings",
+    "language": "Language",
+    "theme": {
+      "label": "Theme",
+      "dark": "Dark",
+      "light": "Light",
+      "system": "Follow system setting"
+    },
+    "backup": {
+      "title": "Backup",
+      "chooseFile": "Choose file…",
+      "exportJson": "Export (JSON)",
+      "exportZip": "Export (ZIP)",
+      "importJson": "Import (JSON)",
+      "importZip": "Import (ZIP)",
+      "zipExportDone": "ZIP export complete.",
+      "zipExportFailed": "ZIP export failed.",
+      "zipImportDone": "ZIP import complete.",
+      "zipImportFailed": "ZIP import failed."
+    },
+    "export": {
+      "json": "Export (JSON)"
+    },
+    "import": {
+      "json": "Import (JSON)",
+      "success": "Import complete: {{added}} new, {{updated}} updated ({{total}} total).",
+      "error": "Import failed."
+    },
+    "storage": {
+      "title": "Storage",
+      "estimate": "Storage usage (local)",
+      "imageCount": "{{count}} images",
+      "recipeCount": "{{count}} recipes",
+      "usageLine": "{{used}} of {{quota}} used • {{recipes}} recipes • {{images}} images (≈ {{imageBytes}})"
+    },
+    "sync": {
+      "title": "Cloud Sync (Google Drive)",
+      "connectedSnack": "Connected to Google Drive.",
+      "syncedSnack": "Sync complete: {{uploaded}} uploaded, {{downloaded}} downloaded, {{merged}} merged.",
+      "connected": "Connected",
+      "connect": "Connect account",
+      "desc": "Connect to Google Drive to back up and share recipes in your own folder.",
+      "disconnect": "Disconnect",
+      "disconnected": "Not connected",
+      "error": "Sync failed",
+      "lastSync": "Last sync: {{time}}",
+      "never": "never",
+      "status": "Status",
+      "syncNow": "Sync now"
+    }
+  },
+  "imagePicker": {
+    "error": "Failed to save image."
+  }
 }

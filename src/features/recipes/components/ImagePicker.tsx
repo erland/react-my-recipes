@@ -23,7 +23,7 @@ export default function ImagePicker({ imageId, onChange, title }: ImagePickerPro
       const asset = await saveImageFile(file);
       onChange(asset.id);
     } catch (err: any) {
-      alert(err?.message || 'imagePicker.error');
+      alert(err?.message || t('imagePicker.error'));
     } finally {
       setBusy(false);
       e.target.value = '';
