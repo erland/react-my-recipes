@@ -8,5 +8,5 @@ coverage
 .env*
 tsconfig.tsbuildinfo
 test-results
-digest.txt
+digest.*
 .env.local
