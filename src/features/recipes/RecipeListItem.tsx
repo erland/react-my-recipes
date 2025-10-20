@@ -8,7 +8,7 @@ import {
   Tooltip,
 } from "@mui/material";
 import { Star, StarBorder, Edit } from "@mui/icons-material";
-import RecipeThumb from "@/components/RecipeThumb";
+import RecipeThumb from "@/features/recipes/components/RecipeThumb";
 import type { Recipe } from "@/types/recipe";
 
 export type RecipeListItemProps = {

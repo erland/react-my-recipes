@@ -17,13 +17,13 @@ import {
   SelectChangeEvent,
 } from "@mui/material";
 import { useTranslation } from "react-i18next";
-import { exportRecipesToJsonBlob, downloadBlob, importRecipesFromJsonFile } from "@/utils/backup";
+import { exportRecipesToJsonBlob, downloadBlob, importRecipesFromJsonFile } from "@/services/backup/jsonBackup";
 import { syncNow } from "@/sync/syncEngine";
 import { ensureDriveLayout, signOutDrive } from "@/sync/googleDriveClient";
 import { db } from "@/db/schema";
 
 // ⬇️ NEW: ZIP backup + storage stats
-import { exportZip, importZip } from "@/utils/zipBackup";
+import { exportZip, importZip } from "@/services/backup/zipBackup";
 import { useStorageStats, fmtBytes } from "@/hooks/useStorageStats";
 import { useThemeMode } from "@/providers/AppThemeProvider";
 

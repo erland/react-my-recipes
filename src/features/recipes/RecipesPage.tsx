@@ -7,7 +7,7 @@ import {
   List,
 } from "@mui/material";
 import { useTranslation } from "react-i18next";
-import { useRecipeSearch } from "@/hooks/useRecipeSearch";
+import { useRecipeSearch } from "@/features/recipes/hooks/useRecipeSearch";
 import { useNavigate } from "react-router-dom";
 import RecipeDialog from "./RecipeDialog";
 import type { Recipe } from "@/types/recipe";

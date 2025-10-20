@@ -1,4 +1,4 @@
-import type { ImageAsset } from "@/types/recipe";
+import type { ImageAsset } from "@/types/image";
 import { v4 as uuidv4 } from "uuid";
 
 /** Load a File into an HTMLImageElement (fallback) */

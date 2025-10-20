@@ -1,5 +1,6 @@
 import Dexie, { Table } from "dexie";
-import type { Recipe, ImageAsset } from "@/types/recipe";
+import type { Recipe } from "@/types/recipe";
+import type { ImageAsset } from "@/types/image"
 import type { SyncState } from "@/types/sync";
 import { v4 as uuidv4 } from "uuid";
 

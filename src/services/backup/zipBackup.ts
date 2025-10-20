@@ -1,6 +1,7 @@
 import JSZip from "jszip";
 import { db } from "@/db/schema";
-import type { ImageAsset, Recipe } from "@/types/recipe";
+import type { Recipe } from "@/types/recipe";
+import type { ImageAsset } from "@/types/image";
 
 /** File name helpers */
 function tsName(d = new Date()) {

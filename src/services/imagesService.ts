@@ -1,7 +1,7 @@
 // src/services/imagesService.ts
 import { db } from "@/db/schema";
 import { v4 as uuidv4 } from "uuid";
-import type { ImageAsset } from "@/types/recipe";
+import type { ImageAsset } from "@/types/image";
 import { compressImage } from "@/utils/imageUtils";
 
 /**

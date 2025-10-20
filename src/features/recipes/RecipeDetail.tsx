@@ -15,7 +15,7 @@ import {
 } from "@mui/material";
 import { ArrowBack, Delete, Edit } from "@mui/icons-material";
 import { useTranslation } from "react-i18next";
-import { useRecipeDetail } from "@/hooks/useRecipeDetail";
+import { useRecipeDetail } from "@/features/recipes/hooks/useRecipeDetail";
 import * as recipesService from "@/services/recipesService";
 import type { Recipe } from "@/types/recipe";
 import RecipeDialog from "./RecipeDialog";

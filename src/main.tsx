@@ -7,7 +7,7 @@ import RecipeDetail from "./features/recipes/RecipeDetail";
 import SettingsPage from "./features/settings/SettingsPage";
 import "./i18n";
 import { ensurePersistentStorage, logStorageEstimate } from "@/utils/persistence";
-import { useAutoSyncToast } from "@/utils/autoSyncToast";
+import { useAutoSyncToast } from "@/components/toasts/autoSyncToast";
 import { AppThemeProvider } from "@/providers/AppThemeProvider";
 
 // ✅ import Dexie instance early
