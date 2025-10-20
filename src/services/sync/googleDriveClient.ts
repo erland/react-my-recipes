@@ -18,6 +18,35 @@ const CLIENT_ID = ((import.meta as any).env?.VITE_GOOGLE_OAUTH_CLIENT_ID ?? "") 
 // Minimal scope to avoid verification friction
 const SCOPES = "https://www.googleapis.com/auth/drive.file";
 
+// ---------------- Utilities (optional hardening) ----------------
+async function withBackoff<T>(fn: () => Promise<T>, tries = 3): Promise<T> {
+  let delay = 300;
+  // eslint-disable-next-line no-constant-condition
+  while (true) {
+    try {
+      return await fn();
+    } catch (e: any) {
+      const msg = String(e?.message || "");
+      const transient =
+        /(?:\b429\b|rate|quota|timeout|temporar|EAI_AGAIN|network|fetch failed|ECONN)/i.test(msg);
+      if (!transient || --tries <= 0) throw e;
+      await new Promise((r) => setTimeout(r, delay));
+      delay *= 2;
+    }
+  }
+}
+
+async function withSyncLock<T>(fn: () => Promise<T>): Promise<T> {
+  try {
+    if (typeof navigator !== "undefined" && navigator?.locks?.request) {
+      return await navigator.locks.request("drive-sync", fn);
+    }
+  } catch {
+    // ignore and fall through
+  }
+  return fn();
+}
+
 // ---------------- Token management ----------------
 let tokenCache: { token: string; expiresAt: number } | null = null;
 let tokenPromise: Promise<string> | null = null;
@@ -57,21 +86,38 @@ export async function getValidToken(): Promise<string> {
     return cached.accessToken;
   }
 
+  if (!CLIENT_ID) {
+    throw new Error("VITE_GOOGLE_OAUTH_CLIENT_ID is not set.");
+  }
+
   // 4) Acquire new
   tokenPromise = (async () => {
     await ensureGisLoaded();
     const google = (window as any).google;
 
     return await new Promise<string>((resolve, reject) => {
+      let retriedInteractive = false;
+
       const tokenClient = google.accounts.oauth2.initTokenClient({
         client_id: CLIENT_ID,
         scope: SCOPES,
         callback: (resp: any) => {
-          if (resp.error) {
+          if (resp?.error) {
+            // If silent attempt failed, retry once with consent prompt.
+            if (!retriedInteractive) {
+              retriedInteractive = true;
+              try {
+                tokenClient.requestAccessToken({ prompt: "consent" });
+                return;
+              } catch {
+                // fallthrough to reject
+              }
+            }
             tokenPromise = null;
             reject(new Error(resp.error));
             return;
           }
+
           const token = resp.access_token as string;
           const expiresIn = (resp.expires_in as number) ?? 3600;
           const expiresAt = Date.now() + expiresIn * 1000;
@@ -95,9 +141,6 @@ export async function getValidToken(): Promise<string> {
                 "[drive] token persisted to Dexie (expires at)",
                 new Date(expiresAt).toISOString()
               );
-              const verify = await db.syncState.get("google-drive");
-              // eslint-disable-next-line no-console
-              console.log("[drive] verify Dexie after put:", verify);
             })()
           ).catch((err) => console.error("[drive] Dexie waitFor failed:", err));
 
@@ -118,13 +161,41 @@ export async function getValidToken(): Promise<string> {
   }
 }
 
-// ---------------- Low-level HTTP helpers ---------------
-async function gdriveFetch(path: string, init: RequestInit = {}): Promise<any> {
+// --------------- Auth-aware fetch helpers ---------------
+async function authFetch(url: string, init: RequestInit = {}): Promise<Response> {
   const token = await getValidToken();
-  const res = await fetch(`${GDRIVE_API}${path}`, {
+  let res = await fetch(url, {
     ...init,
     headers: { ...(init.headers || {}), Authorization: `Bearer ${token}` },
   });
+
+  if (res.status === 401) {
+    // token invalid/revoked: clear caches and retry once
+    tokenCache = null;
+    try {
+      const prev = await db.syncState.get("google-drive");
+      await db.syncState.put(
+        {
+          ...(prev ?? { id: "google-drive" as const }),
+          id: "google-drive" as const,
+          accessToken: null,
+          accessTokenExpiresAt: null,
+        } as any,
+        "google-drive" as const
+      );
+    } catch {}
+    const token2 = await getValidToken();
+    res = await fetch(url, {
+      ...init,
+      headers: { ...(init.headers || {}), Authorization: `Bearer ${token2}` },
+    });
+  }
+
+  return res;
+}
+
+async function gdriveFetch(path: string, init: RequestInit = {}): Promise<any> {
+  const res = await withBackoff(() => authFetch(`${GDRIVE_API}${path}`, init));
   if (!res.ok) {
     const text = await res.text().catch(() => "");
     throw new Error(`Drive API ${res.status}: ${text}`);
@@ -133,7 +204,6 @@ async function gdriveFetch(path: string, init: RequestInit = {}): Promise<any> {
 }
 
 async function gdriveUploadMultipart(meta: Record<string, any>, body: Blob | string): Promise<any> {
-  const token = await getValidToken();
   const boundary = `rb_${Math.random().toString(36).slice(2)}`;
   const delimiter = `\r\n--${boundary}\r\n`;
   const closeDelim = `\r\n--${boundary}--`;
@@ -149,14 +219,13 @@ async function gdriveUploadMultipart(meta: Record<string, any>, body: Blob | str
     closeDelim,
   ].join("");
 
-  const res = await fetch(`${GDRIVE_UPLOAD_API}/files?uploadType=multipart`, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${token}`,
-      "Content-Type": `multipart/related; boundary=${boundary}`,
-    },
-    body: multipartBody,
-  });
+  const res = await withBackoff(() =>
+    authFetch(`${GDRIVE_UPLOAD_API}/files?uploadType=multipart`, {
+      method: "POST",
+      headers: { "Content-Type": `multipart/related; boundary=${boundary}` },
+      body: multipartBody,
+    })
+  );
   if (!res.ok) {
     const text = await res.text().catch(() => "");
     throw new Error(`Drive upload ${res.status}: ${text}`);
@@ -165,7 +234,6 @@ async function gdriveUploadMultipart(meta: Record<string, any>, body: Blob | str
 }
 
 async function gdrivePatchMultipart(fileId: string, json: any): Promise<Response> {
-  const token = await getValidToken();
   const boundary = `rb_${Math.random().toString(36).slice(2)}`;
   const meta = { name: "recipes.json" };
   const metaStr = JSON.stringify(meta);
@@ -182,14 +250,13 @@ async function gdrivePatchMultipart(fileId: string, json: any): Promise<Response
     closeDelim,
   ].join("");
 
-  return fetch(`${GDRIVE_UPLOAD_API}/files/${fileId}?uploadType=multipart`, {
-    method: "PATCH",
-    headers: {
-      Authorization: `Bearer ${token}`,
-      "Content-Type": `multipart/related; boundary=${boundary}`,
-    },
-    body: multipartBody,
-  });
+  return withBackoff(() =>
+    authFetch(`${GDRIVE_UPLOAD_API}/files/${fileId}?uploadType=multipart`, {
+      method: "PATCH",
+      headers: { "Content-Type": `multipart/related; boundary=${boundary}` },
+      body: multipartBody,
+    })
+  );
 }
 
 // ---------------- Folder & File helpers ----------------
@@ -206,17 +273,22 @@ async function findByNameInParent(name: string, parentId?: string): Promise<stri
 async function ensureFolder(name: string, parentId?: string): Promise<string> {
   const existing = await findByNameInParent(name, parentId);
   if (existing) return existing;
-  const token = await getValidToken();
-  const res = await fetch(`${GDRIVE_API}/files`, {
-    method: "POST",
-    headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
-    body: JSON.stringify({
-      name,
-      mimeType: "application/vnd.google-apps.folder",
-      parents: parentId ? [parentId] : undefined,
-    }),
-  });
-  if (!res.ok) throw new Error(`Failed creating folder '${name}'`);
+
+  const res = await withBackoff(() =>
+    authFetch(`${GDRIVE_API}/files`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        name,
+        mimeType: "application/vnd.google-apps.folder",
+        parents: parentId ? [parentId] : undefined,
+      }),
+    })
+  );
+  if (!res.ok) {
+    const text = await res.text().catch(() => "");
+    throw new Error(`Failed creating folder '${name}': ${res.status} ${text}`);
+  }
   const json = await res.json();
   return json.id as string;
 }
@@ -231,42 +303,45 @@ async function ensurePath(path: string[]): Promise<string> {
 
 // ---------------- Public API ----------------
 export async function ensureDriveLayout(): Promise<SyncState> {
-  // NOTE: do NOT capture state once and write it back later (race with token write).
-  // Always re-read latest state right before writing to avoid clobbering accessToken.
-  const rootId = await ensurePath([APP_ROOT, "db"]);
+  return withSyncLock(async () => {
+    // NOTE: do NOT capture state once and write it back later (race with token write).
+    // Always re-read latest state right before writing to avoid clobbering accessToken.
+    const rootId = await ensurePath([APP_ROOT, "db"]);
 
-  const existingFileId = await findByNameInParent("recipes.json", rootId);
-  let recipesFileId = existingFileId;
-  if (!recipesFileId) {
-    const payload = {
-      format: "recipebox.sync.v1",
-      exportedAt: new Date().toISOString(),
-      data: { recipes: [] },
+    const existingFileId = await findByNameInParent("recipes.json", rootId);
+    let recipesFileId = existingFileId;
+    if (!recipesFileId) {
+      const payload = {
+        format: "recipebox.sync.v1",
+        exportedAt: new Date().toISOString(),
+        data: { recipes: [] },
+      };
+      const created = await gdriveUploadMultipart(
+        { name: "recipes.json", parents: [rootId], mimeType: "application/json" },
+        JSON.stringify(payload)
+      );
+      recipesFileId = created.id as string;
+    }
+
+    // ⬇️ Re-read latest row and merge to avoid wiping tokens (fixes the race you’re seeing)
+    const latest =
+      (await db.syncState.get("google-drive")) ??
+      ({ id: "google-drive" as const } as SyncState);
+    const next: SyncState = {
+      ...latest,
+      id: "google-drive" as const,
+      driveFolderId: rootId,
+      recipesFileId,
     };
-    const created = await gdriveUploadMultipart(
-      { name: "recipes.json", parents: [rootId], mimeType: "application/json" },
-      JSON.stringify(payload)
-    );
-    recipesFileId = created.id as string;
-  }
-
-  // ⬇️ Re-read latest row and merge to avoid wiping tokens (fixes the race you’re seeing)
-  const latest = (await db.syncState.get("google-drive")) ?? ({ id: "google-drive" as const } as SyncState);
-  const next: SyncState = {
-    ...latest,
-    id: "google-drive" as const,
-    driveFolderId: rootId,
-    recipesFileId,
-  };
-  await db.syncState.put(next, "google-drive" as const);
-  return next;
+    await db.syncState.put(next, "google-drive" as const);
+    return next;
+  });
 }
 
 export async function downloadRecipesJson(fileId: string): Promise<any> {
-  const token = await getValidToken();
-  const res = await fetch(`${GDRIVE_API}/files/${fileId}?alt=media`, {
-    headers: { Authorization: `Bearer ${token}` },
-  });
+  const res = await withBackoff(() =>
+    authFetch(`${GDRIVE_API}/files/${fileId}?alt=media`)
+  );
   if (res.status === 403 || res.status === 404) {
     const text = await res.text().catch(() => "");
     throw new Error(`Download failed ${res.status}: ${text}`);

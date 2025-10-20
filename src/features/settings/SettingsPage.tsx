@@ -18,8 +18,8 @@ import {
 } from "@mui/material";
 import { useTranslation } from "react-i18next";
 import { exportRecipesToJsonBlob, downloadBlob, importRecipesFromJsonFile } from "@/services/backup/jsonBackup";
-import { syncNow } from "@/sync/syncEngine";
-import { ensureDriveLayout, signOutDrive } from "@/sync/googleDriveClient";
+import { syncNow } from "@/services/sync/syncEngine";
+import { ensureDriveLayout, signOutDrive } from "@/services/sync/googleDriveClient";
 import { db } from "@/db/schema";
 
 // ⬇️ NEW: ZIP backup + storage stats

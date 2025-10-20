@@ -1,6 +1,6 @@
 import React from "react";
 import { Snackbar, Alert } from "@mui/material";
-import { syncNow } from "@/sync/syncEngine";
+import { syncNow } from "@/services/sync/syncEngine";
 import { db } from "@/db/schema";
 
 /** Toast + trigger for settings “Auto-sync” */
