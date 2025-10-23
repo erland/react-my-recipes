@@ -19,7 +19,7 @@ import {
 import { useTranslation } from "react-i18next";
 import { exportRecipesToJsonBlob, downloadBlob, importRecipesFromJsonFile } from "@/services/backup/jsonBackup";
 import { syncNow } from "@/services/sync/syncEngine";
-import { ensureDriveLayout, signOutDrive } from "@/services/sync/googleDriveClient";
+import { ensureDriveLayout, signOutDrive, connectGoogleDriveInteractive } from "@/services/sync/googleDriveClient";
 import { db } from "@/db/schema";
 
 // ⬇️ NEW: ZIP backup + storage stats
@@ -37,6 +37,7 @@ export default function SettingsPage() {
 
   const [autoSync, setAutoSync] = React.useState<boolean>(false);
   const [status, setStatus] = React.useState<string>("");
+  const [busyConnect, setBusyConnect] = React.useState<boolean>(false);
 
   // Language & Theme state
   const savedLang = ((localStorage.getItem("lang") || i18n.language || "sv") as string).startsWith("sv") ? "sv" : "en";
@@ -143,8 +144,18 @@ export default function SettingsPage() {
   }
 
   async function connectDrive() {
+    if (busyConnect) return; // guard against rapid double taps
+    console.log("[drive][UI] Connect clicked");
+    setBusyConnect(true);
     try {
+      // Start interactive auth immediately (iOS: keeps the user-gesture chain intact)
+      console.log("[drive][UI] Starting interactive auth…");
+      await connectGoogleDriveInteractive();
+      console.log("[drive][UI] Auth complete — ensuring Drive layout…");
+
       await ensureDriveLayout();
+      console.log("[drive][UI] Drive layout ensured");
+
       setStatus(String(t("settings.sync.connected")));
       setSnack({
         open: true,
@@ -152,12 +163,15 @@ export default function SettingsPage() {
         message: String(t("settings.sync.connectedSnack")),
       });
     } catch (e: any) {
+      console.error("[drive][UI] Connect failed:", e);
       setStatus(String(t("settings.sync.disconnected")));
       setSnack({
         open: true,
         severity: "error",
         message: e?.message || String(t("settings.sync.error")),
       });
+    } finally {
+      setBusyConnect(false);
     }
   }
 
@@ -219,7 +233,7 @@ export default function SettingsPage() {
             <strong>{t("settings.sync.status")}:</strong> {status}
           </Typography>
           <Stack direction="row" spacing={1}>
-            <Button variant="contained" onClick={connectDrive}>
+            <Button variant="contained" onClick={connectDrive} disabled={busyConnect}>
               {t("settings.sync.connect")}
             </Button>
             <Button variant="outlined" onClick={doSyncNow}>

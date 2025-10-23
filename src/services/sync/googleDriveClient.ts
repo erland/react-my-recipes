@@ -1,7 +1,10 @@
 /*
- * Google Drive client (MVP, no backend):
- * - Uses Google Identity Services "token" flow (no refresh token). When expired, we re-prompt.
- * - Scope: drive.file (only files the app creates)
+ * Google Drive client (PKCE-style via GIS Code model).
+ * - Uses Google Identity Services "code" flow and exchanges code for tokens on the client.
+ * - IMPORTANT: Google treats Web Application OAuth clients as confidential and expects a client_secret
+ *   when you exchange the auth code (even with PKCE). This implementation **passes the secret**,
+ *   because that's what you asked for — but be aware this exposes the secret in the browser.
+ * - Scope: drive.file (only files this app creates)
  * - Layout: /RecipeBox/db/recipes.json
  */
 
@@ -9,16 +12,28 @@ import type { SyncState } from "@/types/sync";
 import { db } from "@/db/schema";
 import Dexie from "dexie";
 
+/** Google API endpoints */
 const GDRIVE_API = "https://www.googleapis.com/drive/v3";
 const GDRIVE_UPLOAD_API = "https://www.googleapis.com/upload/drive/v3";
+const TOKEN_ENDPOINT = "https://oauth2.googleapis.com/token";
+const REVOKE_ENDPOINT = "https://oauth2.googleapis.com/revoke";
+
+/** App layout on Drive */
 const APP_ROOT = "RecipeBox";
 
-// Vite env
+/** Vite env */
 const CLIENT_ID = ((import.meta as any).env?.VITE_GOOGLE_OAUTH_CLIENT_ID ?? "") as string;
-// Minimal scope to avoid verification friction
+const CLIENT_SECRET = ((import.meta as any).env?.VITE_GOOGLE_OAUTH_CLIENT_SECRET ?? "") as string;
+/** Minimal scope to avoid verification friction */
 const SCOPES = "https://www.googleapis.com/auth/drive.file";
 
-// ---------------- Utilities (optional hardening) ----------------
+/** Local cache to avoid spamming IndexedDB */
+let tokenCache: { token: string; expiresAt: number } | null = null;
+/** In-flight token promise gate */
+let tokenPromise: Promise<string> | null = null;
+
+/* ---------------- Utilities ---------------- */
+
 async function withBackoff<T>(fn: () => Promise<T>, tries = 3): Promise<T> {
   let delay = 300;
   // eslint-disable-next-line no-constant-condition
@@ -36,122 +51,267 @@ async function withBackoff<T>(fn: () => Promise<T>, tries = 3): Promise<T> {
   }
 }
 
+function isIOS() {
+  if (typeof navigator === "undefined") return false;
+  const ua = navigator.userAgent || "";
+  return /iP(hone|ad|od)/i.test(ua) || (ua.includes("Mac") && "ontouchend" in document);
+}
 async function withSyncLock<T>(fn: () => Promise<T>): Promise<T> {
+  // iOS/Safari can hang Web Locks; just run directly.
+  if (isIOS()) return fn();
   try {
-    if (typeof navigator !== "undefined" && navigator?.locks?.request) {
-      return await navigator.locks.request("drive-sync", fn);
+    const locks = (navigator as any)?.locks;
+    if (locks?.request) {
+      let resolved = false;
+      const p = locks.request("drive-sync", async () => {
+        resolved = true;
+        return await fn();
+      });
+      // Failsafe: if a lock never resolves, fallback.
+      const timeout = new Promise<never>((_, rej) =>
+        setTimeout(() => !resolved && rej(new Error("Web Locks timed out")), 4000)
+      );
+      return await Promise.race([p, timeout]).catch((e) => {
+        console.warn("[drive] locks.request failed/timeout, running without lock:", e);
+        return fn();
+      });
     }
-  } catch {
-    // ignore and fall through
+  } catch (e) {
+    console.warn("[drive] locks.request threw, running without lock:", e);
   }
   return fn();
 }
 
-// ---------------- Token management ----------------
-let tokenCache: { token: string; expiresAt: number } | null = null;
-let tokenPromise: Promise<string> | null = null;
-
+// NOTE: With the script now preloaded in index.html, this is a no-op guard.
 async function ensureGisLoaded(): Promise<void> {
   if ((window as any).google?.accounts?.oauth2) return;
-  await new Promise<void>((resolve, reject) => {
-    const s = document.createElement("script");
-    s.src = "https://accounts.google.com/gsi/client";
-    s.async = true;
-    s.defer = true;
-    s.onload = () => resolve();
-    s.onerror = () => reject(new Error("Failed to load Google Identity Services"));
-    document.head.appendChild(s);
+  console.warn("[drive] GIS not yet available (script still loading)");
+  // Fall back to waiting (non-interactive flows can afford this).
+  await new Promise<void>((resolve) => {
+    const check = () => {
+      if ((window as any).google?.accounts?.oauth2) resolve();
+      else setTimeout(check, 50);
+    };
+    check();
   });
+}
+
+
+function nowPlus(sec: number) {
+  return Date.now() + sec * 1000;
 }
 
 function isTokenValid(t?: { token: string; expiresAt: number } | null) {
   return !!t && t.expiresAt - 10_000 > Date.now();
 }
 
-export async function getValidToken(): Promise<string> {
-  // 1) In-memory
-  if (isTokenValid(tokenCache)) return tokenCache!.token;
+/* ---------------- OAuth: Code model + token storage ---------------- */
 
-  // 2) Reuse in-flight
-  if (tokenPromise) return tokenPromise;
+type TokenResponse = {
+  access_token: string;
+  expires_in: number;
+  token_type: "Bearer";
+  scope?: string;
+  refresh_token?: string;
+};
 
-  // 3) Dexie cache
-  const cached = await db.syncState.get("google-drive");
-  if (
-    cached?.accessToken &&
-    cached?.accessTokenExpiresAt &&
-    cached.accessTokenExpiresAt - 10_000 > Date.now()
-  ) {
-    tokenCache = { token: cached.accessToken, expiresAt: cached.accessTokenExpiresAt };
-    return cached.accessToken;
+async function exchangeCodeForTokens(code: string): Promise<TokenResponse> {
+  const redirectUri = window.location.origin; // GIS code model: popup => use origin
+  const body = new URLSearchParams({
+    code,
+    client_id: CLIENT_ID,
+    client_secret: CLIENT_SECRET,
+    grant_type: "authorization_code",
+    redirect_uri: redirectUri,
+  });
+  const res = await fetch(TOKEN_ENDPOINT, {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body,
+  });
+  if (!res.ok) {
+    const txt = await res.text();
+    throw new Error(`Token exchange failed: ${res.status} ${txt}`);
+  }
+  return (await res.json()) as TokenResponse;
+}
+
+async function refreshAccessToken(refreshToken: string): Promise<TokenResponse> {
+  const body = new URLSearchParams({
+    client_id: CLIENT_ID,
+    client_secret: CLIENT_SECRET,
+    grant_type: "refresh_token",
+    refresh_token: refreshToken,
+  });
+  const res = await fetch(TOKEN_ENDPOINT, {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body,
+  });
+  if (!res.ok) {
+    const txt = await res.text();
+    throw new Error(`Refresh failed: ${res.status} ${txt}`);
+  }
+  const json = (await res.json()) as TokenResponse;
+  // NOTE: Refresh responses often omit a new refresh_token.
+  json.refresh_token = json.refresh_token ?? refreshToken;
+  return json;
+}
+
+async function authorizeAndStoreTokens(): Promise<string> {
+  await ensureGisLoaded();
+  // @ts-ignore
+  const google = (window as any).google;
+  if (!CLIENT_ID) throw new Error("VITE_GOOGLE_OAUTH_CLIENT_ID is not set.");
+  if (!CLIENT_SECRET) throw new Error("VITE_GOOGLE_OAUTH_CLIENT_SECRET is not set.");
+
+  return await new Promise<string>((resolve, reject) => {
+    console.debug("[drive] initCodeClient (non-interactive path)");
+    const client = google.accounts.oauth2.initCodeClient({
+      client_id: CLIENT_ID,
+      scope: SCOPES,
+      ux_mode: "popup",
+      callback: async (resp: any) => {
+        try {
+          if (resp?.error) {
+            console.error("[drive] code flow error:", resp.error);
+            return reject(new Error(resp.error));
+          }
+         if (!resp?.code) return reject(new Error("No authorization code returned"));
+         console.debug("[drive] received auth code — exchanging for tokens…");
+          const tokens = await exchangeCodeForTokens(resp.code);
+          const expiresAt = nowPlus(tokens.expires_in);
+          tokenCache = { token: tokens.access_token, expiresAt };
+          const prev = await db.syncState.get("google-drive");
+          await db.syncState.put(
+            {
+              ...(prev ?? { id: "google-drive" as const }),
+              id: "google-drive" as const,
+              accessToken: tokens.access_token,
+              accessTokenExpiresAt: expiresAt,
+              refreshToken: tokens.refresh_token ?? prev?.refreshToken ?? null,
+              lastError: null,
+            } as SyncState,
+            "google-drive" as const
+          );
+          resolve(tokens.access_token);
+        } catch (e) {
+          reject(e);
+        }
+      },
+    });
+    try {
+      client.requestCode();
+    } catch (e) {
+      reject(e);
+    }
+  });
+}
+
+/**
+ * Interactive connect explicitly triggered by the "KOPPLA KONTO" button.
+ * IMPORTANT: This function performs NO await before requestCode() so iOS treats it as a user gesture.
+ */
+export function connectGoogleDriveInteractive(): Promise<string> {
+  console.log("[drive] KOPPLA KONTO clicked — starting interactive auth");
+  const google = (window as any).google;
+  if (!google?.accounts?.oauth2) {
+    console.warn("[drive] GIS not ready at click time — did index.html include the script?");
+    return Promise.reject(new Error("Google Identity Services is not loaded yet."));
+  }
+  if (!CLIENT_ID || !CLIENT_SECRET) {
+    console.error("[drive] Missing CLIENT_ID/CLIENT_SECRET env");
+    return Promise.reject(new Error("Missing Google OAuth env (client id/secret)."));
   }
 
-  if (!CLIENT_ID) {
-    throw new Error("VITE_GOOGLE_OAUTH_CLIENT_ID is not set.");
-  }
-
-  // 4) Acquire new
-  tokenPromise = (async () => {
-    await ensureGisLoaded();
-    const google = (window as any).google;
-
-    return await new Promise<string>((resolve, reject) => {
-      let retriedInteractive = false;
-
-      const tokenClient = google.accounts.oauth2.initTokenClient({
+  return new Promise<string>((resolve, reject) => {
+    try {
+      const client = google.accounts.oauth2.initCodeClient({
         client_id: CLIENT_ID,
         scope: SCOPES,
-        callback: (resp: any) => {
-          if (resp?.error) {
-            // If silent attempt failed, retry once with consent prompt.
-            if (!retriedInteractive) {
-              retriedInteractive = true;
-              try {
-                tokenClient.requestAccessToken({ prompt: "consent" });
-                return;
-              } catch {
-                // fallthrough to reject
-              }
+        ux_mode: "popup",
+        callback: async (resp: any) => {
+          try {
+            if (resp?.error) {
+              console.error("[drive] ❌ auth error:", resp.error);
+              return reject(new Error(resp.error));
             }
-            tokenPromise = null;
-            reject(new Error(resp.error));
-            return;
-          }
-
-          const token = resp.access_token as string;
-          const expiresIn = (resp.expires_in as number) ?? 3600;
-          const expiresAt = Date.now() + expiresIn * 1000;
-
-          tokenCache = { token, expiresAt };
-
-          // Persist token in a Dexie-safe context and with an explicit key.
-          Dexie.waitFor(
-            (async () => {
-              const prev = await db.syncState.get("google-drive");
-              const next: SyncState = {
+            if (!resp?.code) {
+              console.error("[drive] ❌ no code in callback");
+              return reject(new Error("No authorization code returned"));
+            }
+            console.debug("[drive] ✅ got code — exchanging…");
+            const tokens = await exchangeCodeForTokens(resp.code);
+            const expiresAt = nowPlus(tokens.expires_in);
+            tokenCache = { token: tokens.access_token, expiresAt };
+            const prev = await db.syncState.get("google-drive");
+            await db.syncState.put(
+              {
                 ...(prev ?? { id: "google-drive" as const }),
                 id: "google-drive" as const,
-                accessToken: token,
+                accessToken: tokens.access_token,
                 accessTokenExpiresAt: expiresAt,
+                refreshToken: tokens.refresh_token ?? prev?.refreshToken ?? null,
                 lastError: null,
-              };
-              await db.syncState.put(next, "google-drive" as const);
-              // eslint-disable-next-line no-console
-              console.log(
-                "[drive] token persisted to Dexie (expires at)",
-                new Date(expiresAt).toISOString()
-              );
-            })()
-          ).catch((err) => console.error("[drive] Dexie waitFor failed:", err));
-
-          tokenPromise = null;
-          resolve(token);
+              } as SyncState,
+              "google-drive" as const
+            );
+            console.log("[drive] ✅ tokens stored");
+            resolve(tokens.access_token);
+          } catch (err) {
+            console.error("[drive] ❌ token exchange failed:", err);
+            reject(err as any);
+          }
         },
       });
+      // CRITICAL: call requestCode() in the same call stack as the click (no await before this)
+      client.requestCode();
+    } catch (e) {
+      console.error("[drive] ❌ requestCode threw:", e);
+      reject(e as any);
+    }
+  });
+}
 
-      // Try silent first; consent only if needed
-      tokenClient.requestAccessToken({ prompt: cached?.accessToken ? "" : "consent" });
-    });
+export async function getValidToken(): Promise<string> {
+  if (tokenCache && isTokenValid(tokenCache)) return tokenCache.token;
+  if (tokenPromise) return tokenPromise;
+
+  tokenPromise = (async () => {
+    const st = await db.syncState.get("google-drive");
+
+    // 1) Cached and valid in DB
+    if (st?.accessToken && st?.accessTokenExpiresAt && st.accessTokenExpiresAt - 10_000 > Date.now()) {
+      tokenCache = { token: st.accessToken, expiresAt: st.accessTokenExpiresAt };
+      return st.accessToken;
+    }
+
+    // 2) Try refresh if we have a refresh token
+    if (st?.refreshToken) {
+      try {
+        const refreshed = await refreshAccessToken(st.refreshToken);
+        const expiresAt = nowPlus(refreshed.expires_in);
+        tokenCache = { token: refreshed.access_token, expiresAt };
+        await db.syncState.put(
+          {
+            ...(st ?? { id: "google-drive" as const }),
+            id: "google-drive" as const,
+            accessToken: refreshed.access_token,
+            accessTokenExpiresAt: expiresAt,
+            refreshToken: refreshed.refresh_token ?? st.refreshToken,
+            lastError: null,
+          } as SyncState,
+          "google-drive" as const
+        );
+        return refreshed.access_token;
+      } catch (e) {
+        console.warn("[drive] refresh failed, falling back to full auth", e);
+      }
+    }
+
+    // 3) Fall back to interactive code flow
+    console.debug("[drive] no valid token — falling back to interactive flow");
+    return await authorizeAndStoreTokens();
   })();
 
   try {
@@ -161,17 +321,16 @@ export async function getValidToken(): Promise<string> {
   }
 }
 
-// --------------- Auth-aware fetch helpers ---------------
+/* ---------------- Auth-aware fetch helpers ---------------- */
+
 async function authFetch(url: string, init: RequestInit = {}): Promise<Response> {
   const token = await getValidToken();
   let res = await fetch(url, {
     ...init,
     headers: { ...(init.headers || {}), Authorization: `Bearer ${token}` },
   });
-
   if (res.status === 401) {
-    // token invalid/revoked: clear caches and retry once
-    tokenCache = null;
+    // Token might have been revoked, try once after clearing
     try {
       const prev = await db.syncState.get("google-drive");
       await db.syncState.put(
@@ -190,127 +349,112 @@ async function authFetch(url: string, init: RequestInit = {}): Promise<Response>
       headers: { ...(init.headers || {}), Authorization: `Bearer ${token2}` },
     });
   }
-
   return res;
 }
 
 async function gdriveFetch(path: string, init: RequestInit = {}): Promise<any> {
-  const res = await withBackoff(() => authFetch(`${GDRIVE_API}${path}`, init));
+  console.debug("[drive][net] → GET/JSON", path);
+  const controller = new AbortController();
+  const t = setTimeout(() => controller.abort(), 15000);
+  const res = await withBackoff(() =>
+    authFetch(`${GDRIVE_API}${path}`, {
+      ...init,
+      signal: controller.signal,
+      headers: { "Content-Type": "application/json", ...(init.headers || {}) },
+    })
+  ).finally(() => clearTimeout(t));
   if (!res.ok) {
-    const text = await res.text().catch(() => "");
-    throw new Error(`Drive API ${res.status}: ${text}`);
+    const text = await res.text();
+    console.error("[drive][net] ← ERR", res.status, text);
+    throw new Error(`Drive API error ${res.status}: ${text}`);
   }
-  return res.json();
+  const json = await res.json();
+  console.debug("[drive][net] ← OK", path);
+  return json;
 }
 
 async function gdriveUploadMultipart(meta: Record<string, any>, body: Blob | string): Promise<any> {
-  const boundary = `rb_${Math.random().toString(36).slice(2)}`;
-  const delimiter = `\r\n--${boundary}\r\n`;
-  const closeDelim = `\r\n--${boundary}--`;
-  const metaStr = JSON.stringify(meta);
-  const bodyPart = body instanceof Blob ? await body.text() : body;
-  const multipartBody = [
-    delimiter,
-    "Content-Type: application/json; charset=UTF-8\r\n\r\n",
-    metaStr,
-    delimiter,
-    "Content-Type: application/json; charset=UTF-8\r\n\r\n",
-    bodyPart,
-    closeDelim,
-  ].join("");
+  const boundary = "====recipebox-boundary===";
+  const payload =
+    `--${boundary}\r\n` +
+    `Content-Type: application/json; charset=UTF-8\r\n\r\n` +
+    `${JSON.stringify(meta)}\r\n` +
+    `--${boundary}\r\n` +
+    `Content-Type: application/json; charset=UTF-8\r\n\r\n` +
+    `${typeof body === "string" ? body : await body.text()}\r\n` +
+    `--${boundary}--`;
 
+  console.debug("[drive][net] → CREATE multipart", meta?.name);
+  const controller = new AbortController();
+  const t = setTimeout(() => controller.abort(), 15000);
   const res = await withBackoff(() =>
     authFetch(`${GDRIVE_UPLOAD_API}/files?uploadType=multipart`, {
       method: "POST",
+      signal: controller.signal,
       headers: { "Content-Type": `multipart/related; boundary=${boundary}` },
-      body: multipartBody,
+      body: payload,
     })
-  );
+  ).finally(() => clearTimeout(t));
   if (!res.ok) {
-    const text = await res.text().catch(() => "");
-    throw new Error(`Drive upload ${res.status}: ${text}`);
-  }
-  return res.json();
-}
-
-async function gdrivePatchMultipart(fileId: string, json: any): Promise<Response> {
-  const boundary = `rb_${Math.random().toString(36).slice(2)}`;
-  const meta = { name: "recipes.json" };
-  const metaStr = JSON.stringify(meta);
-  const bodyStr = JSON.stringify(json);
-  const delimiter = `\r\n--${boundary}\r\n`;
-  const closeDelim = `\r\n--${boundary}--`;
-  const multipartBody = [
-    delimiter,
-    "Content-Type: application/json; charset=UTF-8\r\n\r\n",
-    metaStr,
-    delimiter,
-    "Content-Type: application/json; charset=UTF-8\r\n\r\n",
-    bodyStr,
-    closeDelim,
-  ].join("");
-
-  return withBackoff(() =>
-    authFetch(`${GDRIVE_UPLOAD_API}/files/${fileId}?uploadType=multipart`, {
-      method: "PATCH",
-      headers: { "Content-Type": `multipart/related; boundary=${boundary}` },
-      body: multipartBody,
-    })
-  );
-}
-
-// ---------------- Folder & File helpers ----------------
-async function findByNameInParent(name: string, parentId?: string): Promise<string | undefined> {
-  const safeName = name.replace(/\\/g, "\\\\").replace(/'/g, "\\'");
-  const parentExpr = parentId ? `'${parentId}' in parents` : `'root' in parents`;
-  const q = `name = '${safeName}' and ${parentExpr} and trashed = false`;
-  const res = await gdriveFetch(
-    `/files?q=${encodeURIComponent(q)}&fields=files(id,name,parents,mimeType)`
-  );
-  return res.files?.[0]?.id;
-}
-
-async function ensureFolder(name: string, parentId?: string): Promise<string> {
-  const existing = await findByNameInParent(name, parentId);
-  if (existing) return existing;
-
-  const res = await withBackoff(() =>
-    authFetch(`${GDRIVE_API}/files`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        name,
-        mimeType: "application/vnd.google-apps.folder",
-        parents: parentId ? [parentId] : undefined,
-      }),
-    })
-  );
-  if (!res.ok) {
-    const text = await res.text().catch(() => "");
-    throw new Error(`Failed creating folder '${name}': ${res.status} ${text}`);
+    const text = await res.text();
+    throw new Error(`Drive upload error ${res.status}: ${text}`);
   }
   const json = await res.json();
-  return json.id as string;
+  console.debug("[drive][net] ← CREATED", json?.id);
+  return json;
+}
+
+async function findByNameInParent(name: string, parentId?: string): Promise<string | undefined> {
+  const q: string[] = [
+    `name = '${name.replaceAll("'", "\\'")}'`,
+    "trashed = false",
+    parentId ? `'${parentId}' in parents` : undefined,
+  ].filter(Boolean) as string[];
+
+  const data = await gdriveFetch(
+    `/files?q=${encodeURIComponent(q.join(" and "))}&fields=files(id,name,mimeType,parents)`
+  );
+  return data?.files?.[0]?.id as string | undefined;
 }
 
 async function ensurePath(path: string[]): Promise<string> {
-  let parent: string | undefined = undefined;
-  for (const segment of path) {
-    parent = await ensureFolder(segment, parent);
+  console.debug("[drive] ensurePath start", path);
+  let parent = "root";
+  for (const part of path) {
+    const existing = await findByNameInParent(part, parent);
+    if (existing) {
+      console.debug("[drive] ensurePath found", part, "→", existing);
+      parent = existing;
+      continue;
+    }
+    console.debug("[drive] ensurePath creating", part, "under", parent);
+    const created = await gdriveFetch(`/files`, {
+      method: "POST",
+      body: JSON.stringify({
+        name: part,
+        mimeType: "application/vnd.google-apps.folder",
+        parents: [parent],
+      }),
+    });
+    console.debug("[drive] ensurePath created", part, "→", created?.id);
+    parent = created.id as string;
   }
-  return parent!;
+  console.debug("[drive] ensurePath done →", parent);
+  return parent;
 }
 
-// ---------------- Public API ----------------
+/* ---------------- Public API ---------------- */
+
 export async function ensureDriveLayout(): Promise<SyncState> {
+  console.debug("[drive] ensureDriveLayout() start");
   return withSyncLock(async () => {
-    // NOTE: do NOT capture state once and write it back later (race with token write).
-    // Always re-read latest state right before writing to avoid clobbering accessToken.
     const rootId = await ensurePath([APP_ROOT, "db"]);
 
+    // Ensure recipes.json exists
     const existingFileId = await findByNameInParent("recipes.json", rootId);
     let recipesFileId = existingFileId;
     if (!recipesFileId) {
+      console.debug("[drive] recipes.json missing — creating");
       const payload = {
         format: "recipebox.sync.v1",
         exportedAt: new Date().toISOString(),
@@ -321,80 +465,89 @@ export async function ensureDriveLayout(): Promise<SyncState> {
         JSON.stringify(payload)
       );
       recipesFileId = created.id as string;
+      console.debug("[drive] recipes.json created", recipesFileId);
+    } else {
+      console.debug("[drive] recipes.json exists", recipesFileId);
     }
 
-    // ⬇️ Re-read latest row and merge to avoid wiping tokens (fixes the race you’re seeing)
-    const latest =
-      (await db.syncState.get("google-drive")) ??
+    const latest = (await db.syncState.get("google-drive")) ??
       ({ id: "google-drive" as const } as SyncState);
     const next: SyncState = {
       ...latest,
-      id: "google-drive" as const,
+      id: "google-drive",
       driveFolderId: rootId,
       recipesFileId,
+      lastError: null,
     };
-    await db.syncState.put(next, "google-drive" as const);
+    await db.syncState.put(next, "google-drive");
+    console.debug("[drive] ensureDriveLayout() done");
     return next;
   });
 }
 
 export async function downloadRecipesJson(fileId: string): Promise<any> {
   const res = await withBackoff(() =>
-    authFetch(`${GDRIVE_API}/files/${fileId}?alt=media`)
+    authFetch(`${GDRIVE_API}/files/${encodeURIComponent(fileId)}?alt=media`, {
+      method: "GET",
+    })
   );
-  if (res.status === 403 || res.status === 404) {
-    const text = await res.text().catch(() => "");
-    throw new Error(`Download failed ${res.status}: ${text}`);
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(`Download error ${res.status}: ${text}`);
   }
-  if (!res.ok) throw new Error(`Download failed ${res.status}`);
-  return await res.json();
+  return res.json();
 }
 
 export async function uploadRecipesJson(fileId: string, json: any): Promise<void> {
-  const res = await gdrivePatchMultipart(fileId, json);
-  if (res.status === 403 || res.status === 404) {
-    const state = await db.syncState.get("google-drive");
-    const folderId = state?.driveFolderId;
-    if (!folderId) throw new Error(`Upload failed ${res.status} and driveFolderId is missing`);
+  // Use the media upload path for content-only updates (no metadata).
+  // This avoids sending non-writable fields in the body (e.g. id),
+  // which causes 403 fieldNotWritable.
+  const res = await withBackoff(() =>
+    authFetch(
+      `${GDRIVE_UPLOAD_API}/files/${encodeURIComponent(fileId)}?uploadType=media`,
+      {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json; charset=UTF-8" },
+        body: JSON.stringify(json),
+      }
+    )
+  );
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(`Upload error ${res.status}: ${text}`);
+  }
+}
 
-    const created = await gdriveUploadMultipart(
-      { name: "recipes.json", parents: [folderId], mimeType: "application/json" },
-      JSON.stringify(json)
-    );
-    const newFileId = created.id as string;
+export async function signOutDrive(): Promise<void> {
+  try {
+    const st = await db.syncState.get("google-drive");
+    const accessToken = st?.accessToken ?? null;
+    const refreshToken = (st as any)?.refreshToken ?? null;
 
+    // Best-effort revoke
+    if (accessToken) {
+      try {
+        await fetch(`${REVOKE_ENDPOINT}?token=${encodeURIComponent(accessToken)}`, { method: "POST" });
+      } catch {}
+    }
+    if (refreshToken) {
+      try {
+        await fetch(`${REVOKE_ENDPOINT}?token=${encodeURIComponent(refreshToken)}`, { method: "POST" });
+      } catch {}
+    }
+  } finally {
     const prev = await db.syncState.get("google-drive");
     await db.syncState.put(
       {
         ...(prev ?? { id: "google-drive" as const }),
         id: "google-drive" as const,
-        recipesFileId: newFileId,
+        accessToken: null,
+        accessTokenExpiresAt: null,
+        // @ts-ignore
+        refreshToken: null,
       },
       "google-drive" as const
     );
-    return;
+    tokenCache = null;
   }
-
-  if (!res.ok) {
-    const text = await res.text().catch(() => "");
-    throw new Error(`Upload failed ${res.status}: ${text}`);
-  }
-}
-
-export async function signOutDrive() {
-  const google = (window as any).google;
-  try {
-    const token = (await db.syncState.get("google-drive"))?.accessToken;
-    google?.accounts?.oauth2?.revoke?.(token, () => {});
-  } catch {}
-  const prev = await db.syncState.get("google-drive");
-  await db.syncState.put(
-    {
-      ...(prev ?? { id: "google-drive" as const }),
-      id: "google-drive" as const,
-      accessToken: null,
-      accessTokenExpiresAt: null,
-    },
-    "google-drive" as const
-  );
 }

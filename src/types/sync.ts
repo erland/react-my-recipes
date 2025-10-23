@@ -7,8 +7,10 @@ export interface SyncState {
   autoSync?: boolean;                // UI toggle
   lastSyncAt?: number;               // epoch ms
   lastError?: string | null;         // last error message
-  accessToken?: string | null;       // GIS token (short‑lived)
+  accessToken?: string | null;       // OAuth access token (short-lived)
   accessTokenExpiresAt?: number | null; // epoch ms when token expires
+  // NEW: for code flow refresh
+  refreshToken?: string | null;      // OAuth refresh token (long-lived)
 }
 
 export type RemotePayloadV1 = {

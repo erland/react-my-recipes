@@ -5,5 +5,6 @@ interface ImportMetaEnv {
   readonly BASE_URL: string;
   readonly MODE: string;
   readonly VITE_GOOGLE_OAUTH_CLIENT_ID: string;
+  readonly VITE_GOOGLE_OAUTH_CLIENT_SECRET: string;
 }
 interface ImportMeta { env: ImportMetaEnv }
