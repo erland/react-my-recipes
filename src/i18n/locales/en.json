@@ -39,7 +39,10 @@
     "quantity": "Amount",
     "stepText": "Step",
     "noImage": "No image",
-    "removeImage": "Remove image"
+    "removeImage": "Remove image",
+    "removeImageFromRecipe": "Remove from recipe",
+    "deleteImage": "Delete image",
+    "confirmDeleteImage": "Delete this image from the app? It will be moved to Trash on Google Drive on the next sync."    
   },
   "recipes": {
     "add": "Add new recipe",

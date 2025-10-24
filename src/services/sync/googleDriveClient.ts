@@ -378,28 +378,39 @@ async function gdriveFetch(path: string, init: RequestInit = {}): Promise<any> {
 
 async function gdriveUploadMultipart(meta: Record<string, any>, body: Blob | string): Promise<any> {
   const boundary = "====recipebox-boundary===";
-  const metaPart =
-    `--${boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n${JSON.stringify(meta)}\r\n`;
-  const mediaPartHeader =
-    `--${boundary}\r\nContent-Type: ${typeof body !== "string" && (body as Blob).type ? (body as Blob).type : "application/octet-stream"}\r\n\r\n`;
+  const metaJson = JSON.stringify(meta);
+  const metaPart = `--${boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n${metaJson}\r\n`;
+  const mediaType =
+    typeof body !== "string" && body instanceof Blob && body.type
+      ? body.type
+      : "application/octet-stream";
+  const mediaHeader = `--${boundary}\r\nContent-Type: ${mediaType}\r\n\r\n`;
+
+  const end = `\r\n--${boundary}--`;
+
+  const fullBody =
+    body instanceof Blob
+      ? new Blob([metaPart, mediaHeader, body, end])
+      : `${metaPart}${mediaHeader}${body}${end}`;
 
   console.debug("[drive][net] → CREATE multipart", meta?.name);
   const controller = new AbortController();
-  const t = setTimeout(() => controller.abort(), 15000);
+  const t = setTimeout(() => controller.abort(), 30_000);
   const res = await withBackoff(() =>
     authFetch(`${GDRIVE_UPLOAD_API}/files?uploadType=multipart`, {
       method: "POST",
       signal: controller.signal,
       headers: { "Content-Type": `multipart/related; boundary=${boundary}` },
-      body: body instanceof Blob
-        ? new Blob([metaPart, mediaPartHeader, body, `\r\n--${boundary}--`])
-        : `${metaPart}${mediaPartHeader}${body}\r\n--${boundary}--`,
+      body: fullBody,
     })
   ).finally(() => clearTimeout(t));
+
   if (!res.ok) {
     const text = await res.text();
+    console.error("[drive] upload failed", res.status, text);
     throw new Error(`Drive upload error ${res.status}: ${text}`);
   }
+
   const json = await res.json();
   console.debug("[drive][net] ← CREATED", json?.id);
   return json;
@@ -521,7 +532,22 @@ export async function uploadRecipesJson(fileId: string, json: any): Promise<void
   }
 }
 
-/* ---------------- Images (per-file) ---------------- */
+/** Move a Drive file to Trash (non-destructive; can be restored). */
+export async function trashDriveImage(fileId: string): Promise<void> {
+  const res = await withBackoff(() =>
+    authFetch(`${GDRIVE_API}/files/${encodeURIComponent(fileId)}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json; charset=UTF-8" },
+      body: JSON.stringify({ trashed: true }),
+    })
+  );
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(`Trash image error ${res.status}: ${text}`);
+  }
+}
+
+  /* ---------------- Images (per-file) ---------------- */
 
 export type DriveImageMeta = {
   id: string;
@@ -554,11 +580,19 @@ export async function downloadDriveImage(fileId: string): Promise<Blob> {
 }
 
 export async function createDriveImage(folderId: string, name: string, blob: Blob): Promise<string> {
-  const created = await gdriveUploadMultipart(
-    { name, parents: [folderId], mimeType: blob.type || "application/octet-stream" },
-    blob
-  );
-  return created?.id as string;
+  const meta = {
+    name,
+    parents: [folderId],
+    mimeType: blob.type || "application/octet-stream",
+  };
+
+  const created = await gdriveUploadMultipart(meta, blob);
+  if (!created?.id) {
+    console.warn("[drive][image] createDriveImage → no id returned", created);
+    throw new Error("Image upload failed — no file ID");
+  }
+  console.debug("[drive][image] uploaded", name, "→", created.id);
+  return created.id as string;
 }
 
 export async function updateDriveImage(fileId: string, blob: Blob): Promise<void> {

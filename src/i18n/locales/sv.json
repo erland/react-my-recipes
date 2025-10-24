@@ -39,7 +39,10 @@
     "quantity": "Mängd",
     "stepText": "Steg",
     "noImage": "Ingen bild",
-    "removeImage": "Ta bort bild"
+    "removeImage": "Ta bort bild",
+    "removeImageFromRecipe": "Ta bort från recept",
+    "deleteImage": "Radera bild",
+    "confirmDeleteImage": "Ta bort bilden från appen? Den flyttas till papperskorgen på Google Drive vid nästa synkronisering."
   },
   "recipes": {
     "add": "Lägg till nytt recept",

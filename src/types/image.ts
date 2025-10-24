@@ -8,4 +8,6 @@ export interface ImageAsset {
   mime?: string;
   width?: number;
   height?: number;
+  /** If set, this image is logically deleted (tombstoned) and should not be uploaded. */
+  deletedAt?: number;
 }

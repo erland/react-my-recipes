@@ -1,8 +1,8 @@
-import React from 'react';
-import { Box, Button, Stack, Typography } from '@mui/material';
-import { useTranslation } from 'react-i18next';
-import { saveImageFile } from '@/services/imagesService';
-import { useImageUrl } from '@/hooks/useImageUrl';
+import React from "react";
+import { Box, Button, Stack, Typography } from "@mui/material";
+import { useTranslation } from "react-i18next";
+import { saveImageFile, deleteImage } from "@/services/imagesService";
+import { useImageUrl } from "@/hooks/useImageUrl";
 
 export type ImagePickerProps = {
   imageId?: string;
@@ -23,35 +23,60 @@ export default function ImagePicker({ imageId, onChange, title }: ImagePickerPro
       const asset = await saveImageFile(file);
       onChange(asset.id);
     } catch (err: any) {
-      alert(err?.message || t('imagePicker.error'));
+      alert(err?.message || t("imagePicker.error"));
     } finally {
       setBusy(false);
-      e.target.value = '';
+      e.target.value = "";
+    }
+  }
+
+  async function onDeleteImage() {
+    if (!imageId) return;
+    const ok = confirm(
+      t("recipeDialog.confirmDeleteImage", {
+        defaultValue:
+          "Remove this image from the recipe? It will also be deleted from the app and Drive at next sync.",
+      })
+    );
+    if (!ok) return;
+
+    setBusy(true);
+    try {
+      await deleteImage(imageId); // tombstone + clear blob
+      onChange(undefined); // unlink from recipe
+    } catch (err) {
+      console.warn("[ImagePicker] delete failed", err);
+      alert(t("imagePicker.error"));
+    } finally {
+      setBusy(false);
     }
   }
 
   return (
     <Box sx={{ mb: 1 }}>
-      <Typography variant="subtitle2" sx={{ mb: 1 }}>{t('recipeDialog.image')}</Typography>
+      <Typography variant="subtitle2" sx={{ mb: 1 }}>
+        {t("recipeDialog.image")}
+      </Typography>
+
       {url ? (
         <Box
           sx={{
-            width: '100%',
+            width: "100%",
             height: 260,
             borderRadius: 1,
             mb: 1,
-            overflow: 'hidden',
-            bgcolor: 'action.hover',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
+            overflow: "hidden",
+            bgcolor: "action.hover",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
           }}
         >
           <Box
             component="img"
             src={url}
-            alt={title || 'image'}
-            sx={{ width: '100%', height: '100%', objectFit: 'contain', display: 'block' }}
+            alt={title || "image"}
+            sx={{ width: "100%", height: "100%", objectFit: "contain", display: "block" }}
             loading="lazy"
           />
         </Box>
@@ -60,27 +85,28 @@ export default function ImagePicker({ imageId, onChange, title }: ImagePickerPro
           sx={{
             height: 120,
             borderRadius: 1,
-            bgcolor: 'action.hover',
-            color: 'text.secondary',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
+            bgcolor: "action.hover",
+            color: "text.secondary",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
             mb: 1,
             fontSize: 14,
           }}
         >
-          {t('recipeDialog.noImage')}
+          {t("recipeDialog.noImage")}
         </Box>
       )}
 
       <Stack direction="row" spacing={1}>
         <Button component="label" variant="outlined" size="small" disabled={busy}>
-          {url ? t('recipeDialog.changeImage') : t('recipeDialog.addImage')}
+          {url ? t("recipeDialog.changeImage") : t("recipeDialog.addImage")}
           <input type="file" hidden accept="image/*" onChange={onPickFile} />
         </Button>
+
         {url && (
-          <Button onClick={() => onChange(undefined)} size="small" color="inherit" disabled={busy}>
-            {t('recipeDialog.removeImage')}
+          <Button onClick={onDeleteImage} size="small" color="error" disabled={busy}>
+            {t("recipeDialog.removeImage", { defaultValue: "Remove image" })}
           </Button>
         )}
       </Stack>

@@ -7,10 +7,17 @@ export function useImageUrl(imageId?: string) {
   const [url, setUrl] = useState<string>();
 
   useEffect(() => {
-    if (!img) {
+    // Reset if no id or no image record
+    if (!imageId || !img) {
       setUrl(undefined);
       return;
     }
+    // Respect tombstones: never render URLs for deleted images
+    if ((img as any).deletedAt) {
+      setUrl(undefined);
+      return;
+    }
+    
     if (img.blob instanceof Blob) {
       const u = URL.createObjectURL(img.blob);
       setUrl(u);
@@ -21,7 +28,7 @@ export function useImageUrl(imageId?: string) {
       return;
     }
     setUrl(undefined);
-  }, [img?.blob, img?.blobUrl]);
+  }, [imageId, img?.deletedAt, img?.blob, img?.blobUrl]);
 
   return url;
 }

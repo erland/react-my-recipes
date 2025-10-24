@@ -12,10 +12,21 @@ export class RecipeDB extends Dexie {
   constructor() {
     super("recipeDB");
 
+    // Existing v2 schema (kept for upgrade path)
     this.version(2).stores({
       recipes: "id, title, updatedAt, favorite, *tags, *categories, totalTimeMin, cookTimeMin, prepTimeMin",
       images: "id, updatedAt",
       syncState: "id, lastSyncAt", // id = "google-drive"
+    });
+
+    // v3: add indexes for driveId and deletedAt to support per-image sync + tombstones
+    this.version(3).stores({
+      recipes: "id, title, updatedAt, favorite, *tags, *categories, totalTimeMin, cookTimeMin, prepTimeMin",
+      images: "id, updatedAt, driveId, deletedAt",
+      syncState: "id, lastSyncAt",
+    }).upgrade(() => {
+      // No data transform needed; new indexes are added automatically.
+      // Existing images will simply have undefined driveId/deletedAt until used.
     });
 
     this.recipes.hook("creating", (pk, obj) => {

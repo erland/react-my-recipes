@@ -20,6 +20,8 @@ import * as recipesService from "@/services/recipesService";
 import type { Recipe } from "@/types/recipe";
 import RecipeDialog from "./RecipeDialog";
 import { useImageUrl } from "@/hooks/useImageUrl"; // keep this
+import { useLiveQuery } from "dexie-react-hooks";
+import { db } from "@/db/schema";
 
 export default function RecipeDetail() {
   const { id } = useParams();
@@ -31,8 +33,16 @@ export default function RecipeDetail() {
   const [dialogOpen, setDialogOpen] = useState(false);
 
   // ✅ Call hooks before any early return
-  const heroId = recipe?.imageIds?.[0];
-  const heroUrl = useImageUrl(heroId);
+  // Pick the first non-deleted image that actually has a blob
+  const heroId = useLiveQuery(async () => {
+    const ids = recipe?.imageIds ?? [];
+    for (const imgId of ids) {
+      const img = await db.images.get(imgId);
+      if (img && !img.deletedAt && img.blob) return imgId;
+    }
+    return null;
+  }, [JSON.stringify(recipe?.imageIds ?? [])]) ?? null;
+  const heroUrl = useImageUrl(heroId || undefined);
 
   const handleDelete = async () => {
     if (!id) return;
