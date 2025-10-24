@@ -9,6 +9,7 @@ export function useRecipeForm(recipe?: Recipe | null) {
   const [title, setTitle] = useState<string>('');
   const [description, setDescription] = useState<string>('');
   const [totalTimeMin, setTotalTimeMin] = useState<number | ''>('');
+  const [tags, setTags] = useState<string[]>([]);
 
   // Nested
   const [ingredients, setIngredients] = useState<IngredientRef[]>([]);
@@ -67,16 +68,31 @@ export function useRecipeForm(recipe?: Recipe | null) {
     updatedAt: Date.now(),
   });
 
+  // init/patch tags from existing recipe
+  useEffect(() => {
+    setTags(recipe?.tags ?? []);
+  }, [recipe?.id]);
+    
+
   return {
     // state
     title, setTitle,
     description, setDescription,
     totalTimeMin, setTotalTimeMin,
+    tags, setTags,
     ingredients, steps, imageId, setImageId,
     // mutators
     addIngredient, updateIngredient, deleteIngredient,
     addStep, updateStep, deleteStep,
     // helpers
-    toPartial,
-  };
+    toPartial: () => ({
+      title: title?.trim() || undefined,
+      description: description?.trim() || undefined,
+      totalTimeMin: totalTimeMin === '' ? undefined : Number(totalTimeMin),
+      tags,
+      ingredients,
+      steps,
+      imageIds: imageId ? [imageId] : undefined,
+    }),
+  };      
 }

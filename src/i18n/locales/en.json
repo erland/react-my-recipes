@@ -23,6 +23,8 @@
     "totalTime": "Total time: {{minutes}} min"
   },
   "recipeDialog": {
+    "tags": "Tags",
+    "tagsPlaceholder": "Type and press Enter to add…",
     "addImage": "Add image",
     "addIngredient": "Add ingredient",
     "addStep": "Add step",

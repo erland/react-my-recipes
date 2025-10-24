@@ -14,6 +14,8 @@ import {
   AccordionDetails,
 } from "@mui/material";
 import { ExpandMore } from "@mui/icons-material";
+import TagsInput from "./components/TagsInput";
+import { useAllTags } from "./hooks/useAllTags";
 import { useTranslation } from "react-i18next";
 import type { Recipe } from "@/types/recipe";
 
@@ -37,12 +39,16 @@ export default function RecipeDialog({ open, onClose, recipe, onSave }: RecipeDi
     title, setTitle,
     description, setDescription,
     totalTimeMin, setTotalTimeMin,
+    tags, setTags,
     ingredients, steps,
     imageId, setImageId,
     addIngredient, updateIngredient, deleteIngredient,
     addStep, updateStep, deleteStep,
     toPartial,
   } = useRecipeForm(recipe);
+
+  // suggestions from existing recipes
+  const allTags = useAllTags();
 
   const handleSave = async () => {
     if (!title.trim()) return;
@@ -59,6 +65,14 @@ export default function RecipeDialog({ open, onClose, recipe, onSave }: RecipeDi
 
       <DialogContent>
         <Stack spacing={2} sx={{ mt: 1 }}>
+          {/* Tags */}
+          <TagsInput
+            value={tags}
+            onChange={setTags}
+            suggestions={allTags}
+            label={t("recipeDialog.tags")}
+            placeholder={t("recipeDialog.tagsPlaceholder")}
+          />
           {/* Image */}
           <ImagePicker imageId={imageId} onChange={setImageId} title={title} />
 

@@ -23,6 +23,8 @@
     "totalTime": "Total tid: {{minutes}} min"
   },
   "recipeDialog": {
+    "tags": "Taggar",
+    "tagsPlaceholder": "Skriv och tryck Enter för att lägga till…",
     "addImage": "Lägg till bild",
     "addIngredient": "Lägg till ingrediens",
     "addStep": "Lägg till steg",
