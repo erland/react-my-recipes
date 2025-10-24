@@ -4,6 +4,7 @@ export interface SyncState {
   id: CloudProvider;                 // primary key ("google-drive")
   driveFolderId?: string;            // /RecipeBox
   recipesFileId?: string;            // /RecipeBox/db/recipes.json
+  imagesFolderId?: string;           // /RecipeBox/images
   autoSync?: boolean;                // UI toggle
   lastSyncAt?: number;               // epoch ms
   lastError?: string | null;         // last error message

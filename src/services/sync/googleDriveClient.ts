@@ -5,7 +5,9 @@
  *   when you exchange the auth code (even with PKCE). This implementation **passes the secret**,
  *   because that's what you asked for — but be aware this exposes the secret in the browser.
  * - Scope: drive.file (only files this app creates)
- * - Layout: /RecipeBox/db/recipes.json
+ * - Layout:
+ *     /RecipeBox/db/recipes.json
+ *     /RecipeBox/images/   (each image = one Drive file)
  */
 
 import type { SyncState } from "@/types/sync";
@@ -17,6 +19,7 @@ const GDRIVE_API = "https://www.googleapis.com/drive/v3";
 const GDRIVE_UPLOAD_API = "https://www.googleapis.com/upload/drive/v3";
 const TOKEN_ENDPOINT = "https://oauth2.googleapis.com/token";
 const REVOKE_ENDPOINT = "https://oauth2.googleapis.com/revoke";
+const IMAGES_DIR = "images";
 
 /** App layout on Drive */
 const APP_ROOT = "RecipeBox";
@@ -375,14 +378,10 @@ async function gdriveFetch(path: string, init: RequestInit = {}): Promise<any> {
 
 async function gdriveUploadMultipart(meta: Record<string, any>, body: Blob | string): Promise<any> {
   const boundary = "====recipebox-boundary===";
-  const payload =
-    `--${boundary}\r\n` +
-    `Content-Type: application/json; charset=UTF-8\r\n\r\n` +
-    `${JSON.stringify(meta)}\r\n` +
-    `--${boundary}\r\n` +
-    `Content-Type: application/json; charset=UTF-8\r\n\r\n` +
-    `${typeof body === "string" ? body : await body.text()}\r\n` +
-    `--${boundary}--`;
+  const metaPart =
+    `--${boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n${JSON.stringify(meta)}\r\n`;
+  const mediaPartHeader =
+    `--${boundary}\r\nContent-Type: ${typeof body !== "string" && (body as Blob).type ? (body as Blob).type : "application/octet-stream"}\r\n\r\n`;
 
   console.debug("[drive][net] → CREATE multipart", meta?.name);
   const controller = new AbortController();
@@ -392,7 +391,9 @@ async function gdriveUploadMultipart(meta: Record<string, any>, body: Blob | str
       method: "POST",
       signal: controller.signal,
       headers: { "Content-Type": `multipart/related; boundary=${boundary}` },
-      body: payload,
+      body: body instanceof Blob
+        ? new Blob([metaPart, mediaPartHeader, body, `\r\n--${boundary}--`])
+        : `${metaPart}${mediaPartHeader}${body}\r\n--${boundary}--`,
     })
   ).finally(() => clearTimeout(t));
   if (!res.ok) {
@@ -448,10 +449,11 @@ async function ensurePath(path: string[]): Promise<string> {
 export async function ensureDriveLayout(): Promise<SyncState> {
   console.debug("[drive] ensureDriveLayout() start");
   return withSyncLock(async () => {
-    const rootId = await ensurePath([APP_ROOT, "db"]);
-
+    const dbFolderId = await ensurePath([APP_ROOT, "db"]);
+    const imagesFolderId = await ensurePath([APP_ROOT, IMAGES_DIR]);
+    
     // Ensure recipes.json exists
-    const existingFileId = await findByNameInParent("recipes.json", rootId);
+    const existingFileId = await findByNameInParent("recipes.json", dbFolderId);
     let recipesFileId = existingFileId;
     if (!recipesFileId) {
       console.debug("[drive] recipes.json missing — creating");
@@ -461,7 +463,7 @@ export async function ensureDriveLayout(): Promise<SyncState> {
         data: { recipes: [] },
       };
       const created = await gdriveUploadMultipart(
-        { name: "recipes.json", parents: [rootId], mimeType: "application/json" },
+        { name: "recipes.json", parents: [dbFolderId], mimeType: "application/json" },
         JSON.stringify(payload)
       );
       recipesFileId = created.id as string;
@@ -475,7 +477,8 @@ export async function ensureDriveLayout(): Promise<SyncState> {
     const next: SyncState = {
       ...latest,
       id: "google-drive",
-      driveFolderId: rootId,
+      driveFolderId: dbFolderId, // keep db folder here for backwards compatibility
+      imagesFolderId,
       recipesFileId,
       lastError: null,
     };
@@ -515,6 +518,59 @@ export async function uploadRecipesJson(fileId: string, json: any): Promise<void
   if (!res.ok) {
     const text = await res.text();
     throw new Error(`Upload error ${res.status}: ${text}`);
+  }
+}
+
+/* ---------------- Images (per-file) ---------------- */
+
+export type DriveImageMeta = {
+  id: string;
+  name: string;
+  mimeType?: string;
+  modifiedTime?: string; // ISO
+};
+
+/** List all image files under /RecipeBox/images (single page is fine; UUID names are sparse). */
+export async function listDriveImages(folderId: string): Promise<DriveImageMeta[]> {
+  const q = [
+    "trashed = false",
+    `'${folderId}' in parents`,
+  ].join(" and ");
+  const data = await gdriveFetch(
+    `/files?q=${encodeURIComponent(q)}&fields=files(id,name,mimeType,modifiedTime,parents)&pageSize=1000`
+  );
+  return (data?.files ?? []) as DriveImageMeta[];
+}
+
+export async function downloadDriveImage(fileId: string): Promise<Blob> {
+  const res = await withBackoff(() =>
+    authFetch(`${GDRIVE_API}/files/${encodeURIComponent(fileId)}?alt=media`, { method: "GET" })
+  );
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(`Download image error ${res.status}: ${text}`);
+  }
+  return res.blob();
+}
+
+export async function createDriveImage(folderId: string, name: string, blob: Blob): Promise<string> {
+  const created = await gdriveUploadMultipart(
+    { name, parents: [folderId], mimeType: blob.type || "application/octet-stream" },
+    blob
+  );
+  return created?.id as string;
+}
+
+export async function updateDriveImage(fileId: string, blob: Blob): Promise<void> {
+  const res = await withBackoff(() =>
+    authFetch(
+      `${GDRIVE_UPLOAD_API}/files/${encodeURIComponent(fileId)}?uploadType=media`,
+      { method: "PATCH", headers: { "Content-Type": blob.type || "application/octet-stream" }, body: blob }
+    )
+  );
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(`Update image error ${res.status}: ${text}`);
   }
 }
 
