@@ -2,7 +2,7 @@
 import { describe, it, beforeEach, expect } from "vitest";
 import { renderHook, waitFor } from "@testing-library/react";
 import { db } from "@/db/schema";
-import { useRecipeSearch } from "@/hooks/useRecipeSearch";
+import { useRecipeSearch } from "@/features/recipes/hooks/useRecipeSearch";
 
 describe("useRecipeSearch – time filter edge case", () => {
   beforeEach(async () => {
