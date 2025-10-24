@@ -98,8 +98,8 @@ This plan is optimized for fast, reliable delivery of v1.0 based on your specifi
   - OAuth2 PKCE in browser; tokens in IndexedDB
   - Settings: “Choose account”, **Sync now**, auto‑sync toggle
 - **Drive Layout**
-  - `/RecipeBox/db/recipes.json` (LWW per field with `updatedAt`)
-  - `/RecipeBox/images/<id>.webp`
+  - `/MyRecipes/db/recipes.json` (LWW per field with `updatedAt`)
+  - `/MyRecipes/images/<id>.webp`
 - **Sync Strategy**
   - On startup and on network regain, reconcile local vs cloud
   - Per‑recipe Last‑Write‑Wins (LWW)

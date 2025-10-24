@@ -2,9 +2,9 @@ export type CloudProvider = "google-drive";
 
 export interface SyncState {
   id: CloudProvider;                 // primary key ("google-drive")
-  driveFolderId?: string;            // /RecipeBox
-  recipesFileId?: string;            // /RecipeBox/db/recipes.json
-  imagesFolderId?: string;           // /RecipeBox/images
+  driveFolderId?: string;            // /MyRecipes
+  recipesFileId?: string;            // /MyRecipes/db/recipes.json
+  imagesFolderId?: string;           // /MyRecipes/images
   autoSync?: boolean;                // UI toggle
   lastSyncAt?: number;               // epoch ms
   lastError?: string | null;         // last error message
@@ -15,7 +15,7 @@ export interface SyncState {
 }
 
 export type RemotePayloadV1 = {
-  format: "recipebox.sync.v1";
+  format: "myrecipes.sync.v1";
   exportedAt: string; // ISO
   data: {
     recipes: import("@/types/recipe").Recipe[];

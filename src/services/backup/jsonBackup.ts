@@ -2,7 +2,7 @@ import { db } from "@/db/schema";
 import type { Recipe } from "@/types/recipe";
 
 export type ExportFileV1 = {
-  format: "recipebox.export.v1";
+  format: "myrecipes.export.v1";
   exportedAt: string; // ISO string
   data: { recipes: Recipe[] };
 };
@@ -10,7 +10,7 @@ export type ExportFileV1 = {
 export async function exportRecipesToJsonBlob(): Promise<Blob> {
   const recipes = await db.recipes.toArray();
   const payload: ExportFileV1 = {
-    format: "recipebox.export.v1",
+    format: "myrecipes.export.v1",
     exportedAt: new Date().toISOString(),
     data: { recipes },
   };

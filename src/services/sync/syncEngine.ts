@@ -51,7 +51,7 @@ export async function syncNow(): Promise<SyncResult> {
     downloadRecipesJson(state.recipesFileId).catch(
       () =>
         ({
-          format: "recipebox.sync.v1",
+          format: "myrecipes.sync.v1",
           exportedAt: new Date().toISOString(),
           data: { recipes: [] },
         } as RemotePayloadV1)
@@ -201,7 +201,7 @@ export async function syncNow(): Promise<SyncResult> {
 
   // Upload merged dataset back to Drive
   const payload: RemotePayloadV1 = {
-    format: "recipebox.sync.v1",
+    format: "myrecipes.sync.v1",
     exportedAt: new Date().toISOString(),
     data: { recipes: merged },
   };

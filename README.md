@@ -166,7 +166,7 @@ export interface ImageAsset {
 
 ## E) Cloud Sync (backend-less)
 - **MVP provider:** Google Drive (App folder), later OneDrive/Dropbox.
-- **File layout:** `/RecipeBox/db/recipes.json` (LWW) and `/RecipeBox/images/<id>.webp`.
+- **File layout:** `/MyRecipes/db/recipes.json` (LWW) and `/MyRecipes/images/<id>.webp`.
 - **Conflicts:** Last-Write-Wins per recipe (`updatedAt` timestamps).
 - **Auth:** OAuth2 PKCE; tokens stored in IndexedDB.
 

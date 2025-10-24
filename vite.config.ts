@@ -12,7 +12,7 @@ export default defineConfig({
       registerType: "autoUpdate",
       includeAssets: ["icons/icon-192.png", "icons/icon-512.png"],
       manifest: {
-        name: "Recipe Box",
+        name: "My Recipes",
         short_name: "Recipes",
         start_url: "/",
         display: "standalone",

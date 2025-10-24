@@ -6,8 +6,8 @@
  *   because that's what you asked for — but be aware this exposes the secret in the browser.
  * - Scope: drive.file (only files this app creates)
  * - Layout:
- *     /RecipeBox/db/recipes.json
- *     /RecipeBox/images/   (each image = one Drive file)
+ *     /MyRecipes/db/recipes.json
+ *     /MyRecipes/images/   (each image = one Drive file)
  */
 
 import type { SyncState } from "@/types/sync";
@@ -22,7 +22,7 @@ const REVOKE_ENDPOINT = "https://oauth2.googleapis.com/revoke";
 const IMAGES_DIR = "images";
 
 /** App layout on Drive */
-const APP_ROOT = "RecipeBox";
+const APP_ROOT = "MyRecipes";
 
 /** Vite env */
 const CLIENT_ID = ((import.meta as any).env?.VITE_GOOGLE_OAUTH_CLIENT_ID ?? "") as string;
@@ -377,7 +377,7 @@ async function gdriveFetch(path: string, init: RequestInit = {}): Promise<any> {
 }
 
 async function gdriveUploadMultipart(meta: Record<string, any>, body: Blob | string): Promise<any> {
-  const boundary = "====recipebox-boundary===";
+  const boundary = "====myrecipes-boundary===";
   const metaJson = JSON.stringify(meta);
   const metaPart = `--${boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n${metaJson}\r\n`;
   const mediaType =
@@ -469,7 +469,7 @@ export async function ensureDriveLayout(): Promise<SyncState> {
     if (!recipesFileId) {
       console.debug("[drive] recipes.json missing — creating");
       const payload = {
-        format: "recipebox.sync.v1",
+        format: "myrecipes.sync.v1",
         exportedAt: new Date().toISOString(),
         data: { recipes: [] },
       };
@@ -556,7 +556,7 @@ export type DriveImageMeta = {
   modifiedTime?: string; // ISO
 };
 
-/** List all image files under /RecipeBox/images (single page is fine; UUID names are sparse). */
+/** List all image files under /MyRecipes/images (single page is fine; UUID names are sparse). */
 export async function listDriveImages(folderId: string): Promise<DriveImageMeta[]> {
   const q = [
     "trashed = false",
