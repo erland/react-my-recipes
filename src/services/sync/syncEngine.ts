@@ -13,7 +13,7 @@ import {
   type DriveImageMeta,
 } from "./googleDriveClient";
 import type { ImageAsset } from "@/types/image";
-  
+
 export type SyncResult = {
   uploaded: number;
   downloaded: number;
@@ -68,9 +68,7 @@ export async function syncNow(): Promise<SyncResult> {
   });
 
   // ── Per-image incremental sync (LWW by updatedAt vs Drive modifiedTime) ─────────
-  // Skips safely if imagesFolderId is not available (older client).
   if (state.imagesFolderId) {
-    // List all remote images under /RecipeBox/images
     const remoteImages = await listDriveImages(state.imagesFolderId);
     const remoteByUuid: Record<string, DriveImageMeta> = {};
     const remoteById: Record<string, DriveImageMeta> = {};
@@ -87,25 +85,25 @@ export async function syncNow(): Promise<SyncResult> {
       const remoteMs = meta.modifiedTime ? Date.parse(meta.modifiedTime) : 0;
       const localMs = localImg?.updatedAt ?? 0;
       const localDeletedAt = localImg?.deletedAt ?? 0;
-      // If we deleted locally at/after the remote modified time, don't resurrect it.
       const tombstoneBlocks = localDeletedAt && localDeletedAt >= remoteMs;
-      const needsDownload = (!localImg || !localImg.blob || remoteMs > localMs) && !tombstoneBlocks;      
+      const needsDownload =
+        (!localImg || !localImg.blob || remoteMs > localMs) && !tombstoneBlocks;
       if (!needsDownload) continue;
       try {
         const blob = await downloadDriveImage(meta.id);
-        // Best-effort dimensions
         let width: number | undefined, height: number | undefined;
         try {
           const bmp = await createImageBitmap(blob);
-          width = bmp.width; height = bmp.height;
-          // @ts-ignore (close may not exist across browsers)
+          width = bmp.width;
+          height = bmp.height;
+          // @ts-ignore
           bmp.close?.();
         } catch {}
         const asset: ImageAsset = {
           id: uuid,
           fileName: meta.name,
           updatedAt: Math.max(remoteMs, Date.now()),
-          deletedAt: undefined, // remote has a live copy → clear any local tombstone
+          deletedAt: undefined,
           blob,
           mime: blob.type || meta.mimeType,
           width,
@@ -123,13 +121,9 @@ export async function syncNow(): Promise<SyncResult> {
     const remoteUuidSet = new Set(Object.keys(remoteByUuid));
     const remoteIdSet = new Set(Object.keys(remoteById));
     for (const img of locals) {
-      // If already tombstoned, keep as-is (will push delete later)
       if (img.deletedAt) continue;
       const missingByUuid = !remoteUuidSet.has(img.id);
       const missingByDriveId = !!img.driveId && !remoteIdSet.has(img.driveId);
-
-      // 🧠 Only treat as "remote deleted" if we had previously uploaded it (driveId present)
-      // and it's not a brand-new local image (driveId missing means never uploaded).
       if (img.driveId && missingByUuid && missingByDriveId) {
         console.debug("[sync][images] remote missing → tombstoning locally", img.id, img.fileName);
         await db.images.put({
@@ -139,45 +133,68 @@ export async function syncNow(): Promise<SyncResult> {
           blobUrl: undefined,
         });
       }
-      
     }
 
-    // 3) Push local images: first propagate local deletions (trash on Drive), then upload/update
+    // 3) Push local images (trash → upload/update)
     const localsAfterDeletes = await db.images.toArray();
     for (const img of localsAfterDeletes) {
       const remote = img.driveId ? remoteById[img.driveId] : remoteByUuid[img.id];
       const remoteMs = remote?.modifiedTime ? Date.parse(remote.modifiedTime) : 0;
       const localMs = img.updatedAt ?? 0;
       const extFromMime = (m?: string) =>
-        m?.includes("webp") ? "webp" :
-        (m?.includes("jpeg") || m?.includes("jpg")) ? "jpg" :
-        m?.includes("png") ? "png" : "bin";
+        m?.includes("webp")
+          ? "webp"
+          : m?.includes("jpeg") || m?.includes("jpg")
+          ? "jpg"
+          : m?.includes("png")
+          ? "png"
+          : "bin";
       const fileName = `${img.id}.${extFromMime(img.mime)}`;
       try {
-        // If tombstoned locally → ensure remote is trashed, then skip
         if (img.deletedAt) {
-          if (remote) {
-            await trashDriveImage(remote.id);
-          }
-          continue; // keep tombstone; prevents resurrection
+          if (remote) await trashDriveImage(remote.id);
+          continue;
         }
-
-        if (!img.blob) continue; // nothing to upload
-       
+        if (!img.blob) continue;
         if (!remote) {
-          // Create on Drive and remember driveId
           const newId = await createDriveImage(state.imagesFolderId, fileName, img.blob as Blob);
           await db.images.update(img.id, { driveId: newId });
         } else if (localMs > remoteMs) {
-          // Update the existing Drive file
           await updateDriveImage(remote.id, img.blob as Blob);
           if (!img.driveId) await db.images.update(img.id, { driveId: remote.id });
-        } else {
-          // Remote is newer or equal — just ensure mapping exists
-          if (!img.driveId) await db.images.update(img.id, { driveId: remote.id });
+        } else if (!img.driveId) {
+          await db.images.update(img.id, { driveId: remote.id });
         }
       } catch (e) {
         console.warn("[sync][images] upload failed", img.id, e);
+      }
+    }
+
+    // 4) Mark local orphans (images no longer referenced by any recipe)
+    const allRecipes = await db.recipes.toArray();
+    const referencedIds = new Set(allRecipes.flatMap((r) => r.imageIds ?? []).filter(Boolean));
+    const allImages = await db.images.toArray();
+    for (const img of allImages) {
+      const isReferenced = referencedIds.has(img.id);
+      if (!isReferenced && !img.deletedAt) {
+        console.debug("[sync][images] orphaned locally → tombstoning", img.id, img.fileName);
+        await db.images.put({
+          ...img,
+          deletedAt: Date.now(),
+          blob: undefined,
+          blobUrl: undefined,
+        });
+      }
+    }
+
+    // 5) Clean up old tombstoned images (local-only deletion)
+    const tombstoned = await db.images.where("deletedAt").above(0).toArray();
+    const retainMs = 7 * 24 * 60 * 60 * 1000; // keep for 7 days
+    for (const img of tombstoned) {
+      const ageMs = Date.now() - (img.deletedAt ?? 0);
+      if (ageMs > retainMs) {
+        console.debug("[sync][images] purging tombstoned image", img.id, img.fileName);
+        await db.images.delete(img.id);
       }
     }
   }
@@ -190,7 +207,7 @@ export async function syncNow(): Promise<SyncResult> {
   };
   await uploadRecipesJson(state.recipesFileId, payload);
 
-  // ✅ MERGE-SAFE WRITE: keep accessToken and other fields intact
+  // ✅ MERGE-SAFE WRITE
   const prev = await db.syncState.get("google-drive");
   await db.syncState.put(
     {
