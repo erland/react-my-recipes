@@ -6,6 +6,8 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
+    "build:github": "tsc -b && vite build --mode github",
+    "preview:github": "npm run build:github && node scripts/preview-github-local.mjs",
     "preview": "vite preview",
     "test": "vitest run",
     "test:watch": "vitest",

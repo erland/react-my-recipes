@@ -5,7 +5,8 @@ dist
 .playwright
 coverage
 *.log
-.env*
+.env.local
+.env.*.local
 tsconfig.tsbuildinfo
 test-results
 digest.*
