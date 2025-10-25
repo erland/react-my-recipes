@@ -83,3 +83,37 @@ The app is built to run as a **progressive web app (PWA)**, meaning it can be us
 
 ## Summary
 Overall, the application provides a clean and user-friendly way to store, browse, and manage recipes locally, with synchronization and offline support. It is designed for everyday home cooking, offering just enough flexibility for editing and organizing recipes while keeping the interface approachable for non-technical users.
+
+## Build / Run instructions
+### Cloud Flare Worker
+- wrangler login
+- wrangler secret put GOOGLE_CLIENT_SECRET
+- wrangler deploy
+### PWA
+#### Local development
+- Setup .env.local with:
+```
+VITE_GOOGLE_OAUTH_CLIENT_ID=<Google Client ID>.apps.googleusercontent.com
+VITE_TOKEN_BRIDGE_URL=<Cloud Flace Worker url>
+VITE_ENV=local
+```
+- npm run build && npm run dev
+- Acccess as: http://localhost:5173
+#### Local testing of github build
+- Adjust .env.github with:
+```
+VITE_GOOGLE_OAUTH_CLIENT_ID=<Google Client ID>.apps.googleusercontent.com
+VITE_TOKEN_BRIDGE_URL=<Cloud Flace Worker url>
+VITE_ENV=github
+```
+- npm run preview:github
+- Access as: http://localhost:3000/react-my-recipes
+#### GitHub Pages build
+- Adjust .env.github with:
+```
+VITE_GOOGLE_OAUTH_CLIENT_ID=<Google Client ID>.apps.googleusercontent.com
+VITE_TOKEN_BRIDGE_URL=<Cloud Flace Worker url>
+VITE_ENV=github
+```
+- Push to GitHub
+- Access as: https://```<github user>```.github.io/react-my-recipes
