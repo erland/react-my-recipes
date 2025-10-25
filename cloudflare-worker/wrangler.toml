@@ -1,0 +1,8 @@
+name = "myrecipes-token-bridge"
+main = "worker.js"
+compatibility_date = "2025-10-25"
+
+# This one is fine to check in, it's not considered "secret".
+# The SECRET goes in via `wrangler secret`.
+[vars]
+GOOGLE_CLIENT_ID = "980735045983-etgu030nbmo80qf7upi4thkcpq0nl0pm.apps.googleusercontent.com"

@@ -1,23 +1,27 @@
 /*
- * Google Drive client (PKCE-style via GIS Code model).
- * - Uses Google Identity Services "code" flow and exchanges code for tokens on the client.
- * - IMPORTANT: Google treats Web Application OAuth clients as confidential and expects a client_secret
- *   when you exchange the auth code (even with PKCE). This implementation **passes the secret**,
- *   because that's what you asked for — but be aware this exposes the secret in the browser.
- * - Scope: drive.file (only files this app creates)
- * - Layout:
- *     /MyRecipes/db/recipes.json
- *     /MyRecipes/images/   (each image = one Drive file)
+ * Google Drive client (via GIS Code model + Cloudflare token bridge).
+ *
+ * High-level:
+ * 1. We ask Google for an authorization code using GIS (popup).
+ * 2. We send that code to our Cloudflare Worker, NOT directly to Google.
+ *    The Worker knows the client_secret. The browser never sees it.
+ * 3. The Worker returns { access_token, refresh_token, expires_in }.
+ * 4. We store tokens in IndexedDB (syncState) and reuse/refresh them.
+ *
+ * Scope: drive.file (only files this app creates)
+ *
+ * Drive layout:
+ *   /MyRecipes/db/recipes.json
+ *   /MyRecipes/images/*
  */
 
 import type { SyncState } from "@/types/sync";
 import { db } from "@/db/schema";
 import Dexie from "dexie";
 
-/** Google API endpoints */
+/** Google API endpoints (public Google APIs we call with Bearer tokens) */
 const GDRIVE_API = "https://www.googleapis.com/drive/v3";
 const GDRIVE_UPLOAD_API = "https://www.googleapis.com/upload/drive/v3";
-const TOKEN_ENDPOINT = "https://oauth2.googleapis.com/token";
 const REVOKE_ENDPOINT = "https://oauth2.googleapis.com/revoke";
 const IMAGES_DIR = "images";
 
@@ -25,8 +29,9 @@ const IMAGES_DIR = "images";
 const APP_ROOT = "MyRecipes";
 
 /** Vite env */
-const CLIENT_ID = ((import.meta as any).env?.VITE_GOOGLE_OAUTH_CLIENT_ID ?? "") as string;
-const CLIENT_SECRET = ((import.meta as any).env?.VITE_GOOGLE_OAUTH_CLIENT_SECRET ?? "") as string;
+const CLIENT_ID = (import.meta as any).env?.VITE_GOOGLE_OAUTH_CLIENT_ID ?? "";
+const TOKEN_BRIDGE_URL = (import.meta as any).env?.VITE_TOKEN_BRIDGE_URL ?? "";
+
 /** Minimal scope to avoid verification friction */
 const SCOPES = "https://www.googleapis.com/auth/drive.file";
 
@@ -59,9 +64,14 @@ function isIOS() {
   const ua = navigator.userAgent || "";
   return /iP(hone|ad|od)/i.test(ua) || (ua.includes("Mac") && "ontouchend" in document);
 }
+
+/**
+ * Try to serialize sync so we don't stomp tokens concurrently.
+ * Uses Web Locks when available, falls back to just running.
+ */
 async function withSyncLock<T>(fn: () => Promise<T>): Promise<T> {
-  // iOS/Safari can hang Web Locks; just run directly.
-  if (isIOS()) return fn();
+  if (isIOS()) return fn(); // Web Locks can hang on iOS Safari
+
   try {
     const locks = (navigator as any)?.locks;
     if (locks?.request) {
@@ -70,7 +80,6 @@ async function withSyncLock<T>(fn: () => Promise<T>): Promise<T> {
         resolved = true;
         return await fn();
       });
-      // Failsafe: if a lock never resolves, fallback.
       const timeout = new Promise<never>((_, rej) =>
         setTimeout(() => !resolved && rej(new Error("Web Locks timed out")), 4000)
       );
@@ -85,11 +94,10 @@ async function withSyncLock<T>(fn: () => Promise<T>): Promise<T> {
   return fn();
 }
 
-// NOTE: With the script now preloaded in index.html, this is a no-op guard.
+// Ensure GIS script is ready before calling initCodeClient()
 async function ensureGisLoaded(): Promise<void> {
   if ((window as any).google?.accounts?.oauth2) return;
   console.warn("[drive] GIS not yet available (script still loading)");
-  // Fall back to waiting (non-interactive flows can afford this).
   await new Promise<void>((resolve) => {
     const check = () => {
       if ((window as any).google?.accounts?.oauth2) resolve();
@@ -99,7 +107,6 @@ async function ensureGisLoaded(): Promise<void> {
   });
 }
 
-
 function nowPlus(sec: number) {
   return Date.now() + sec * 1000;
 }
@@ -108,7 +115,7 @@ function isTokenValid(t?: { token: string; expiresAt: number } | null) {
   return !!t && t.expiresAt - 10_000 > Date.now();
 }
 
-/* ---------------- OAuth: Code model + token storage ---------------- */
+/* ---------------- OAuth via Cloudflare Worker ---------------- */
 
 type TokenResponse = {
   access_token: string;
@@ -118,20 +125,23 @@ type TokenResponse = {
   refresh_token?: string;
 };
 
+/**
+ * Ask our Cloudflare Worker to exchange a one-time auth code
+ * for (access_token, refresh_token, expires_in).
+ * We do NOT send client_secret from the browser.
+ */
 async function exchangeCodeForTokens(code: string): Promise<TokenResponse> {
-  const redirectUri = window.location.origin; // GIS code model: popup => use origin
-  const body = new URLSearchParams({
-    code,
-    client_id: CLIENT_ID,
-    client_secret: CLIENT_SECRET,
-    grant_type: "authorization_code",
-    redirect_uri: redirectUri,
-  });
-  const res = await fetch(TOKEN_ENDPOINT, {
+  if (!TOKEN_BRIDGE_URL) {
+    throw new Error("TOKEN_BRIDGE_URL is not configured");
+  }
+
+  const redirectUri = window.location.origin; // must match allowed redirect in GIS setup
+  const res = await fetch(`${TOKEN_BRIDGE_URL}/oauth/exchange`, {
     method: "POST",
-    headers: { "Content-Type": "application/x-www-form-urlencoded" },
-    body,
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ code, redirect_uri: redirectUri }),
   });
+
   if (!res.ok) {
     const txt = await res.text();
     throw new Error(`Token exchange failed: ${res.status} ${txt}`);
@@ -139,34 +149,41 @@ async function exchangeCodeForTokens(code: string): Promise<TokenResponse> {
   return (await res.json()) as TokenResponse;
 }
 
+/**
+ * Ask our Cloudflare Worker to refresh an access token using a stored refresh token.
+ */
 async function refreshAccessToken(refreshToken: string): Promise<TokenResponse> {
-  const body = new URLSearchParams({
-    client_id: CLIENT_ID,
-    client_secret: CLIENT_SECRET,
-    grant_type: "refresh_token",
-    refresh_token: refreshToken,
-  });
-  const res = await fetch(TOKEN_ENDPOINT, {
+  if (!TOKEN_BRIDGE_URL) {
+    throw new Error("TOKEN_BRIDGE_URL is not configured");
+  }
+
+  const res = await fetch(`${TOKEN_BRIDGE_URL}/oauth/refresh`, {
     method: "POST",
-    headers: { "Content-Type": "application/x-www-form-urlencoded" },
-    body,
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ refresh_token: refreshToken }),
   });
+
   if (!res.ok) {
     const txt = await res.text();
     throw new Error(`Refresh failed: ${res.status} ${txt}`);
   }
+
   const json = (await res.json()) as TokenResponse;
-  // NOTE: Refresh responses often omit a new refresh_token.
+  // Google often omits refresh_token on refresh, so keep ours.
   json.refresh_token = json.refresh_token ?? refreshToken;
   return json;
 }
 
+/**
+ * Perform a full auth code flow (popup) and persist tokens.
+ * This is used for initial connect or fallback when refresh fails.
+ */
 async function authorizeAndStoreTokens(): Promise<string> {
   await ensureGisLoaded();
-  // @ts-ignore
   const google = (window as any).google;
+
   if (!CLIENT_ID) throw new Error("VITE_GOOGLE_OAUTH_CLIENT_ID is not set.");
-  if (!CLIENT_SECRET) throw new Error("VITE_GOOGLE_OAUTH_CLIENT_SECRET is not set.");
+  if (!TOKEN_BRIDGE_URL) throw new Error("TOKEN_BRIDGE_URL is not set.");
 
   return await new Promise<string>((resolve, reject) => {
     console.debug("[drive] initCodeClient (non-interactive path)");
@@ -180,12 +197,18 @@ async function authorizeAndStoreTokens(): Promise<string> {
             console.error("[drive] code flow error:", resp.error);
             return reject(new Error(resp.error));
           }
-         if (!resp?.code) return reject(new Error("No authorization code returned"));
-         console.debug("[drive] received auth code — exchanging for tokens…");
+          if (!resp?.code) {
+            return reject(new Error("No authorization code returned"));
+          }
+
+          console.debug("[drive] received auth code — exchanging via Worker…");
           const tokens = await exchangeCodeForTokens(resp.code);
+
           const expiresAt = nowPlus(tokens.expires_in);
           tokenCache = { token: tokens.access_token, expiresAt };
+
           const prev = await db.syncState.get("google-drive");
+
           await db.syncState.put(
             {
               ...(prev ?? { id: "google-drive" as const }),
@@ -197,12 +220,14 @@ async function authorizeAndStoreTokens(): Promise<string> {
             } as SyncState,
             "google-drive" as const
           );
+
           resolve(tokens.access_token);
         } catch (e) {
           reject(e);
         }
       },
     });
+
     try {
       client.requestCode();
     } catch (e) {
@@ -212,19 +237,22 @@ async function authorizeAndStoreTokens(): Promise<string> {
 }
 
 /**
- * Interactive connect explicitly triggered by the "KOPPLA KONTO" button.
- * IMPORTANT: This function performs NO await before requestCode() so iOS treats it as a user gesture.
+ * Interactive connect explicitly triggered by the user ("KOPPLA KONTO").
+ * Still uses popup -> code -> Worker -> tokens, but with immediate UX feedback.
  */
 export function connectGoogleDriveInteractive(): Promise<string> {
   console.log("[drive] KOPPLA KONTO clicked — starting interactive auth");
+
   const google = (window as any).google;
   if (!google?.accounts?.oauth2) {
     console.warn("[drive] GIS not ready at click time — did index.html include the script?");
     return Promise.reject(new Error("Google Identity Services is not loaded yet."));
   }
-  if (!CLIENT_ID || !CLIENT_SECRET) {
-    console.error("[drive] Missing CLIENT_ID/CLIENT_SECRET env");
-    return Promise.reject(new Error("Missing Google OAuth env (client id/secret)."));
+  if (!CLIENT_ID || !TOKEN_BRIDGE_URL) {
+    console.error("[drive] Missing CLIENT_ID or TOKEN_BRIDGE_URL env");
+    return Promise.reject(
+      new Error("Missing Google OAuth env (client id / token bridge).")
+    );
   }
 
   return new Promise<string>((resolve, reject) => {
@@ -243,11 +271,15 @@ export function connectGoogleDriveInteractive(): Promise<string> {
               console.error("[drive] ❌ no code in callback");
               return reject(new Error("No authorization code returned"));
             }
-            console.debug("[drive] ✅ got code — exchanging…");
+
+            console.debug("[drive] ✅ got code — exchanging via Worker…");
             const tokens = await exchangeCodeForTokens(resp.code);
+
             const expiresAt = nowPlus(tokens.expires_in);
             tokenCache = { token: tokens.access_token, expiresAt };
+
             const prev = await db.syncState.get("google-drive");
+
             await db.syncState.put(
               {
                 ...(prev ?? { id: "google-drive" as const }),
@@ -259,6 +291,7 @@ export function connectGoogleDriveInteractive(): Promise<string> {
               } as SyncState,
               "google-drive" as const
             );
+
             console.log("[drive] ✅ tokens stored");
             resolve(tokens.access_token);
           } catch (err) {
@@ -267,7 +300,8 @@ export function connectGoogleDriveInteractive(): Promise<string> {
           }
         },
       });
-      // CRITICAL: call requestCode() in the same call stack as the click (no await before this)
+
+      // Must happen synchronously on user gesture
       client.requestCode();
     } catch (e) {
       console.error("[drive] ❌ requestCode threw:", e);
@@ -276,6 +310,9 @@ export function connectGoogleDriveInteractive(): Promise<string> {
   });
 }
 
+/**
+ * Get a valid Bearer token (refreshing if needed).
+ */
 export async function getValidToken(): Promise<string> {
   if (tokenCache && isTokenValid(tokenCache)) return tokenCache.token;
   if (tokenPromise) return tokenPromise;
@@ -283,18 +320,27 @@ export async function getValidToken(): Promise<string> {
   tokenPromise = (async () => {
     const st = await db.syncState.get("google-drive");
 
-    // 1) Cached and valid in DB
-    if (st?.accessToken && st?.accessTokenExpiresAt && st.accessTokenExpiresAt - 10_000 > Date.now()) {
-      tokenCache = { token: st.accessToken, expiresAt: st.accessTokenExpiresAt };
+    // 1) Use cached DB token if not expired
+    if (
+      st?.accessToken &&
+      st?.accessTokenExpiresAt &&
+      st.accessTokenExpiresAt - 10_000 > Date.now()
+    ) {
+      tokenCache = {
+        token: st.accessToken,
+        expiresAt: st.accessTokenExpiresAt,
+      };
       return st.accessToken;
     }
 
-    // 2) Try refresh if we have a refresh token
+    // 2) Try refresh with our stored refresh_token via the Worker
     if (st?.refreshToken) {
       try {
         const refreshed = await refreshAccessToken(st.refreshToken);
         const expiresAt = nowPlus(refreshed.expires_in);
+
         tokenCache = { token: refreshed.access_token, expiresAt };
+
         await db.syncState.put(
           {
             ...(st ?? { id: "google-drive" as const }),
@@ -306,13 +352,14 @@ export async function getValidToken(): Promise<string> {
           } as SyncState,
           "google-drive" as const
         );
+
         return refreshed.access_token;
       } catch (e) {
         console.warn("[drive] refresh failed, falling back to full auth", e);
       }
     }
 
-    // 3) Fall back to interactive code flow
+    // 3) No valid token, do full popup auth again
     console.debug("[drive] no valid token — falling back to interactive flow");
     return await authorizeAndStoreTokens();
   })();
@@ -328,12 +375,14 @@ export async function getValidToken(): Promise<string> {
 
 async function authFetch(url: string, init: RequestInit = {}): Promise<Response> {
   const token = await getValidToken();
+
   let res = await fetch(url, {
     ...init,
     headers: { ...(init.headers || {}), Authorization: `Bearer ${token}` },
   });
+
+  // If 401, maybe the token got revoked. Clear + retry once.
   if (res.status === 401) {
-    // Token might have been revoked, try once after clearing
     try {
       const prev = await db.syncState.get("google-drive");
       await db.syncState.put(
@@ -352,13 +401,17 @@ async function authFetch(url: string, init: RequestInit = {}): Promise<Response>
       headers: { ...(init.headers || {}), Authorization: `Bearer ${token2}` },
     });
   }
+
   return res;
 }
+
+/* ---------------- Drive helpers ---------------- */
 
 async function gdriveFetch(path: string, init: RequestInit = {}): Promise<any> {
   console.debug("[drive][net] → GET/JSON", path);
   const controller = new AbortController();
   const t = setTimeout(() => controller.abort(), 15000);
+
   const res = await withBackoff(() =>
     authFetch(`${GDRIVE_API}${path}`, {
       ...init,
@@ -366,11 +419,13 @@ async function gdriveFetch(path: string, init: RequestInit = {}): Promise<any> {
       headers: { "Content-Type": "application/json", ...(init.headers || {}) },
     })
   ).finally(() => clearTimeout(t));
+
   if (!res.ok) {
     const text = await res.text();
     console.error("[drive][net] ← ERR", res.status, text);
     throw new Error(`Drive API error ${res.status}: ${text}`);
   }
+
   const json = await res.json();
   console.debug("[drive][net] ← OK", path);
   return json;
@@ -379,12 +434,14 @@ async function gdriveFetch(path: string, init: RequestInit = {}): Promise<any> {
 async function gdriveUploadMultipart(meta: Record<string, any>, body: Blob | string): Promise<any> {
   const boundary = "====myrecipes-boundary===";
   const metaJson = JSON.stringify(meta);
-  const metaPart = `--${boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n${metaJson}\r\n`;
+  const metaPart =
+    `--${boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n${metaJson}\r\n`;
   const mediaType =
     typeof body !== "string" && body instanceof Blob && body.type
       ? body.type
       : "application/octet-stream";
-  const mediaHeader = `--${boundary}\r\nContent-Type: ${mediaType}\r\n\r\n`;
+  const mediaHeader =
+    `--${boundary}\r\nContent-Type: ${mediaType}\r\n\r\n`;
 
   const end = `\r\n--${boundary}--`;
 
@@ -396,6 +453,7 @@ async function gdriveUploadMultipart(meta: Record<string, any>, body: Blob | str
   console.debug("[drive][net] → CREATE multipart", meta?.name);
   const controller = new AbortController();
   const t = setTimeout(() => controller.abort(), 30_000);
+
   const res = await withBackoff(() =>
     authFetch(`${GDRIVE_UPLOAD_API}/files?uploadType=multipart`, {
       method: "POST",
@@ -429,10 +487,61 @@ async function findByNameInParent(name: string, parentId?: string): Promise<stri
   return data?.files?.[0]?.id as string | undefined;
 }
 
-async function ensurePath(path: string[]): Promise<string> {
-  console.debug("[drive] ensurePath start", path);
+/* ---------------- Public API ---------------- */
+
+export async function ensureDriveLayout(): Promise<SyncState> {
+  console.debug("[drive] ensureDriveLayout() start");
+  return withSyncLock(async () => {
+    const dbFolderId = await ensurePath([APP_ROOT, "db"]);
+    const imagesFolderId = await ensurePath([APP_ROOT, IMAGES_DIR]);
+
+    // Ensure recipes.json exists (create if missing)
+    const existingFileId = await findByNameInParent("recipes.json", dbFolderId);
+    let recipesFileId = existingFileId;
+    if (!recipesFileId) {
+      console.debug("[drive] recipes.json missing — creating");
+      const payload = {
+        format: "myrecipes.sync.v1",
+        exportedAt: new Date().toISOString(),
+        data: { recipes: [] },
+      };
+      const created = await gdriveUploadMultipart(
+        {
+          name: "recipes.json",
+          parents: [dbFolderId],
+          mimeType: "application/json",
+        },
+        JSON.stringify(payload)
+      );
+      recipesFileId = created.id as string;
+      console.debug("[drive] recipes.json created", recipesFileId);
+    } else {
+      console.debug("[drive] recipes.json exists", recipesFileId);
+    }
+
+    const latest =
+      (await db.syncState.get("google-drive")) ??
+      ({ id: "google-drive" as const } as SyncState);
+
+    const next: SyncState = {
+      ...latest,
+      id: "google-drive",
+      driveFolderId: dbFolderId,
+      imagesFolderId,
+      recipesFileId,
+      lastError: null,
+    };
+
+    await db.syncState.put(next, "google-drive");
+    console.debug("[drive] ensureDriveLayout() done");
+    return next;
+  });
+}
+
+async function ensurePath(pathParts: string[]): Promise<string> {
+  console.debug("[drive] ensurePath start", pathParts);
   let parent = "root";
-  for (const part of path) {
+  for (const part of pathParts) {
     const existing = await findByNameInParent(part, parent);
     if (existing) {
       console.debug("[drive] ensurePath found", part, "→", existing);
@@ -455,56 +564,14 @@ async function ensurePath(path: string[]): Promise<string> {
   return parent;
 }
 
-/* ---------------- Public API ---------------- */
-
-export async function ensureDriveLayout(): Promise<SyncState> {
-  console.debug("[drive] ensureDriveLayout() start");
-  return withSyncLock(async () => {
-    const dbFolderId = await ensurePath([APP_ROOT, "db"]);
-    const imagesFolderId = await ensurePath([APP_ROOT, IMAGES_DIR]);
-    
-    // Ensure recipes.json exists
-    const existingFileId = await findByNameInParent("recipes.json", dbFolderId);
-    let recipesFileId = existingFileId;
-    if (!recipesFileId) {
-      console.debug("[drive] recipes.json missing — creating");
-      const payload = {
-        format: "myrecipes.sync.v1",
-        exportedAt: new Date().toISOString(),
-        data: { recipes: [] },
-      };
-      const created = await gdriveUploadMultipart(
-        { name: "recipes.json", parents: [dbFolderId], mimeType: "application/json" },
-        JSON.stringify(payload)
-      );
-      recipesFileId = created.id as string;
-      console.debug("[drive] recipes.json created", recipesFileId);
-    } else {
-      console.debug("[drive] recipes.json exists", recipesFileId);
-    }
-
-    const latest = (await db.syncState.get("google-drive")) ??
-      ({ id: "google-drive" as const } as SyncState);
-    const next: SyncState = {
-      ...latest,
-      id: "google-drive",
-      driveFolderId: dbFolderId, // keep db folder here for backwards compatibility
-      imagesFolderId,
-      recipesFileId,
-      lastError: null,
-    };
-    await db.syncState.put(next, "google-drive");
-    console.debug("[drive] ensureDriveLayout() done");
-    return next;
-  });
-}
-
 export async function downloadRecipesJson(fileId: string): Promise<any> {
   const res = await withBackoff(() =>
-    authFetch(`${GDRIVE_API}/files/${encodeURIComponent(fileId)}?alt=media`, {
-      method: "GET",
-    })
+    authFetch(
+      `${GDRIVE_API}/files/${encodeURIComponent(fileId)}?alt=media`,
+      { method: "GET" }
+    )
   );
+
   if (!res.ok) {
     const text = await res.text();
     throw new Error(`Download error ${res.status}: ${text}`);
@@ -513,12 +580,11 @@ export async function downloadRecipesJson(fileId: string): Promise<any> {
 }
 
 export async function uploadRecipesJson(fileId: string, json: any): Promise<void> {
-  // Use the media upload path for content-only updates (no metadata).
-  // This avoids sending non-writable fields in the body (e.g. id),
-  // which causes 403 fieldNotWritable.
   const res = await withBackoff(() =>
     authFetch(
-      `${GDRIVE_UPLOAD_API}/files/${encodeURIComponent(fileId)}?uploadType=media`,
+      `${GDRIVE_UPLOAD_API}/files/${encodeURIComponent(
+        fileId
+      )}?uploadType=media`,
       {
         method: "PATCH",
         headers: { "Content-Type": "application/json; charset=UTF-8" },
@@ -526,6 +592,7 @@ export async function uploadRecipesJson(fileId: string, json: any): Promise<void
       }
     )
   );
+
   if (!res.ok) {
     const text = await res.text();
     throw new Error(`Upload error ${res.status}: ${text}`);
@@ -541,13 +608,12 @@ export async function trashDriveImage(fileId: string): Promise<void> {
       body: JSON.stringify({ trashed: true }),
     })
   );
+
   if (!res.ok) {
     const text = await res.text();
     throw new Error(`Trash image error ${res.status}: ${text}`);
   }
 }
-
-  /* ---------------- Images (per-file) ---------------- */
 
 export type DriveImageMeta = {
   id: string;
@@ -556,21 +622,23 @@ export type DriveImageMeta = {
   modifiedTime?: string; // ISO
 };
 
-/** List all image files under /MyRecipes/images (single page is fine; UUID names are sparse). */
+/** List all image files under /MyRecipes/images */
 export async function listDriveImages(folderId: string): Promise<DriveImageMeta[]> {
-  const q = [
-    "trashed = false",
-    `'${folderId}' in parents`,
-  ].join(" and ");
+  const q = ["trashed = false", `'${folderId}' in parents`].join(" and ");
   const data = await gdriveFetch(
-    `/files?q=${encodeURIComponent(q)}&fields=files(id,name,mimeType,modifiedTime,parents)&pageSize=1000`
+    `/files?q=${encodeURIComponent(
+      q
+    )}&fields=files(id,name,mimeType,modifiedTime,parents)&pageSize=1000`
   );
   return (data?.files ?? []) as DriveImageMeta[];
 }
 
 export async function downloadDriveImage(fileId: string): Promise<Blob> {
   const res = await withBackoff(() =>
-    authFetch(`${GDRIVE_API}/files/${encodeURIComponent(fileId)}?alt=media`, { method: "GET" })
+    authFetch(
+      `${GDRIVE_API}/files/${encodeURIComponent(fileId)}?alt=media`,
+      { method: "GET" }
+    )
   );
   if (!res.ok) {
     const text = await res.text();
@@ -579,7 +647,11 @@ export async function downloadDriveImage(fileId: string): Promise<Blob> {
   return res.blob();
 }
 
-export async function createDriveImage(folderId: string, name: string, blob: Blob): Promise<string> {
+export async function createDriveImage(
+  folderId: string,
+  name: string,
+  blob: Blob
+): Promise<string> {
   const meta = {
     name,
     parents: [folderId],
@@ -595,13 +667,25 @@ export async function createDriveImage(folderId: string, name: string, blob: Blo
   return created.id as string;
 }
 
-export async function updateDriveImage(fileId: string, blob: Blob): Promise<void> {
+export async function updateDriveImage(
+  fileId: string,
+  blob: Blob
+): Promise<void> {
   const res = await withBackoff(() =>
     authFetch(
-      `${GDRIVE_UPLOAD_API}/files/${encodeURIComponent(fileId)}?uploadType=media`,
-      { method: "PATCH", headers: { "Content-Type": blob.type || "application/octet-stream" }, body: blob }
+      `${GDRIVE_UPLOAD_API}/files/${encodeURIComponent(
+        fileId
+      )}?uploadType=media`,
+      {
+        method: "PATCH",
+        headers: {
+          "Content-Type": blob.type || "application/octet-stream",
+        },
+        body: blob,
+      }
     )
   );
+
   if (!res.ok) {
     const text = await res.text();
     throw new Error(`Update image error ${res.status}: ${text}`);
@@ -614,15 +698,21 @@ export async function signOutDrive(): Promise<void> {
     const accessToken = st?.accessToken ?? null;
     const refreshToken = (st as any)?.refreshToken ?? null;
 
-    // Best-effort revoke
+    // Best-effort revoke tokens on Google's side
     if (accessToken) {
       try {
-        await fetch(`${REVOKE_ENDPOINT}?token=${encodeURIComponent(accessToken)}`, { method: "POST" });
+        await fetch(
+          `${REVOKE_ENDPOINT}?token=${encodeURIComponent(accessToken)}`,
+          { method: "POST" }
+        );
       } catch {}
     }
     if (refreshToken) {
       try {
-        await fetch(`${REVOKE_ENDPOINT}?token=${encodeURIComponent(refreshToken)}`, { method: "POST" });
+        await fetch(
+          `${REVOKE_ENDPOINT}?token=${encodeURIComponent(refreshToken)}`,
+          { method: "POST" }
+        );
       } catch {}
     }
   } finally {
