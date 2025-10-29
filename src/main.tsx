@@ -37,11 +37,11 @@ logStorageEstimate();
  *
  * Vite gives us import.meta.env.BASE_URL:
  *   - "/" in dev/local builds
- *   - "/react-my-recipes/" in the GitHub Pages build
+ *   - "/pwa-my-recipes/" in the GitHub Pages build
  *
  * We normalize it so React Router gets:
  *   "/"                    → "/"
- *   "/react-my-recipes/"   → "/react-my-recipes"
+ *   "/pwa-my-recipes/"   → "/pwa-my-recipes"
  */
 function getBasename() {
   const raw = import.meta.env.BASE_URL || "/";

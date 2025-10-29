@@ -11,7 +11,7 @@ export default defineConfig(({ mode }) => {
 
   // Detect when building for GitHub Pages
   const isGithub = mode === "github" || process.env.GITHUB_ACTIONS;
-  const base = isGithub ? "/react-my-recipes/" : "/";
+  const base = isGithub ? "/pwa-my-recipes/" : "/";
 
   return {
     base,

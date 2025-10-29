@@ -107,7 +107,7 @@ VITE_TOKEN_BRIDGE_URL=<Cloud Flace Worker url>
 VITE_ENV=github
 ```
 - npm run preview:github
-- Access as: http://localhost:3000/react-my-recipes
+- Access as: http://localhost:3000/pwa-my-recipes
 #### GitHub Pages build
 - Adjust .env.github with:
 ```
@@ -116,4 +116,4 @@ VITE_TOKEN_BRIDGE_URL=<Cloud Flace Worker url>
 VITE_ENV=github
 ```
 - Push to GitHub
-- Access as: https://```<github user>```.github.io/react-my-recipes
+- Access as: https://```<github user>```.github.io/pwa-my-recipes
